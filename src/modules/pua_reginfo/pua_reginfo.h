@@ -6,6 +6,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -32,8 +34,12 @@ extern str outbound_proxy;
 extern str server_address;
 
 extern usrloc_api_t ul; /*!< Structure containing pointers to usrloc functions*/
-extern pua_api_t pua; /*!< Structure containing pointers to PUA functions*/
+extern pua_api_t pua;	/*!< Structure containing pointers to PUA functions*/
 
 extern int reginfo_use_domain;
+extern int reginfo_disable_publish;
+
+int w_reginfo_disable_publish(sip_msg_t *, char *, char *);
+int ki_reginfo_disable_publish(sip_msg_t *);
 
 #endif

@@ -92,7 +92,9 @@ modparam("topoh", "mask_key", "some secret here")
 		SIP URIs. Can be any IP address, even a private-space or non-existing
 		IP address (e.g., 192.168.1.1, 127.0.0.2), including the SIP server
 		address, but must not be an address potentially used by clients.
-		It is not used at all for SIP routing.
+		If set to empty string, the advertised IP of the incoming or outgoing
+		socket is used when specified, otherwise the IP of the socket is used.
+		Note that the value is actually not used at all for SIP routing.
 		</para>
 		<para>
 		<emphasis>
@@ -104,6 +106,28 @@ modparam("topoh", "mask_key", "some secret here")
 		<programlisting format="linespecific">
 ...
 modparam("topoh", "mask_ip", "192.168.0.1")
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="topoh.p.mask_cookie">
+		<title><varname>mask_cookie</varname> (str)</title>
+		<para>
+		Name of the cookie used internally for processing as header name and
+		Via parameter name. The incoming SIP message is cleaned of the attributes
+		matching it, therefore use a name unlikely to be set by the downstream
+		for legit purposes.
+		</para>
+		<para>
+		<emphasis>
+			Default value is "TH".
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>mask_cookie</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("topoh", "mask_cookie", "KSRTH")
 ...
 </programlisting>
 		</example>
@@ -132,6 +156,29 @@ modparam("topoh", "mask_ip", "192.168.0.1")
 		<programlisting format="linespecific">
 ...
 modparam("topoh", "mask_callid", 1)
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="topoh.p.mask_mode">
+		<title><varname>mask_mode</varname> (integer)</title>
+		<para>
+			Control when and what parts of SIP message are masked.
+		</para>
+		<para>
+			It works as a bitmask value. The following options are available:
+			(1) - skip masking Contact headers in 3XX (redirect) replies.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 0.
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>mask_mode</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("topoh", "mask_mode", 1)
 ...
 </programlisting>
 		</example>
@@ -332,6 +379,28 @@ modparam("topoh", "event_mode", 2)
 </programlisting>
 		</example>
 	</section>
+	<section id="topoh.p.use_mode">
+		<title><varname>use_mode</varname> (int)</title>
+		<para>
+			Control how the module is initialized. If set to 1, the module is
+			only initialized to be used as a library via inter-module API
+			functions. If set to 0, the module is initialized for SIP messages
+			processing.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 0 (to process SIP messages).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>use_mode</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("topoh", "use_mode", 1)
+...
+</programlisting>
+		</example>
+	</section>
 	</section>
 
 	<section>
@@ -388,5 +457,10 @@ event_route[topoh:msg-sending] {
 		</example>
 	</section>
 	</section>
+	<section>
+		<title>Pesudo-Variables</title>
+		<para>
+		<emphasis>- $th(ecallid)</emphasis> - return the topoh-encoded Call-Id
+		</para>
+	</section>
 </chapter>
-

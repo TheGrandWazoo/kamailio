@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -62,8 +64,9 @@
  * This is the data structure that is used to store counted-length
  * strings in SER core and modules.
  */
-struct _str{
-	char* s; /**< Pointer to the first character of the string */
+struct _str
+{
+	char *s; /**< Pointer to the first character of the string */
 	int len; /**< Length of the string */
 };
 
@@ -103,9 +106,16 @@ typedef struct _str str;
  * sequence in the formatting string is %.*, see the man page of printf for
  * more details.
  */
-#define STR_FMT(_pstr_)	\
-  ((_pstr_ != (str *)0) ? (_pstr_)->len : 0), \
-  ((_pstr_ != (str *)0) ? (_pstr_)->s : "")
+#define STR_FMT(_pstr_)                         \
+	((_pstr_ != (str *)0) ? (_pstr_)->len : 0), \
+			((_pstr_ != (str *)0) ? (_pstr_)->s : "")
+
+/** Formats ::str string for use in printf-like functions with default value.
+ * Same as STR_FMT but will use v if str is empty
+ */
+#define STR_FMT_VAL(_pstr_, v)                  \
+	((_pstr_ != (str *)0) ? (_pstr_)->len : 0), \
+			((_pstr_ != (str *)0) ? (_pstr_)->s : v)
 
 
 /** Compares two ::str strings.
@@ -116,34 +126,54 @@ typedef struct _str str;
  * @param y is second string to be compared
  * @return 1 if strings are same, 0 otherwise
  */
-#define STR_EQ(x,y) (((x).len == (y).len) && \
-					 (memcmp((x).s, (y).s, (x).len) == 0))
+#define STR_EQ(x, y) \
+	(((x).len == (y).len) && (memcmp((x).s, (y).s, (x).len) == 0))
 
 /**
  * If c != '\0', backup c in v and set c = '\0'
  * - useful to terminate str->s with '\0' (if not already '\0'), keeping original
  *   value in v, to be able to restore with STR_ZTOV(...)
  */
-#define STR_VTOZ(c,v) do { \
-		v = '\0'; \
-		if(c!='\0') { \
-			v = c; \
-			c = '\0'; \
-		} \
+#define STR_VTOZ(c, v)  \
+	do {                \
+		v = '\0';       \
+		if(c != '\0') { \
+			v = c;      \
+			c = '\0';   \
+		}               \
 	} while(0)
 
 /**
  * If v != '\0', set c = v
  * - restore original value after using STR_VTOZ(...)
  */
-#define STR_ZTOV(c,v) do { \
-		if (v != '\0') { \
-			c = v; \
-		} \
+#define STR_ZTOV(c, v)  \
+	do {                \
+		if(v != '\0') { \
+			c = v;      \
+		}               \
 	} while(0)
 
 /**
- * str with value: not null and not emptu
+ * set str x variable with static value char* v
+ */
+#define STR_STATIC_SET(x, v)     \
+	do {                         \
+		(x).s = v;               \
+		(x).len = sizeof(v) - 1; \
+	} while(0);
+
+/**
+ * set str x variable with char* v
+ */
+#define STR_SET(x, v)        \
+	do {                     \
+		(x).s = v;           \
+		(x).len = strlen(v); \
+	} while(0);
+
+/**
+ * str with value: not null and not empty
  */
 #define STR_WITHVAL(_sp) ((_sp) && ((_sp)->s) && ((_sp)->len))
 
@@ -158,7 +188,7 @@ typedef struct _str str;
  */
 int str_append(str *orig, str *suffix, str *dest);
 
-char* _strnstr(const char *s, const char *find, size_t slen);
-char* _strnistr(const char *s, const char *find, size_t slen);
+char *_strnstr(const char *s, const char *find, size_t slen);
+char *_strnistr(const char *s, const char *find, size_t slen);
 
 #endif

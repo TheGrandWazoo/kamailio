@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -20,6 +22,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
+
+#include <arpa/inet.h>
 
 #include "../../core/sr_module.h"
 #include "../../core/dprint.h"
@@ -83,8 +87,9 @@ int hep_msg_received(sr_event_param_t *evp)
 		return hepv3_received(buf, *len, ri);
 	} else {
 
-		LOG(L_ERR, "ERROR: sipcapture:hep_msg_received: not supported version "
-				   "or bad length: v:[%d] l:[%d]\n",
+		LOG(L_ERR,
+				"ERROR: sipcapture:hep_msg_received: not supported version "
+				"or bad length: v:[%d] l:[%d]\n",
 				heph->hp_v, heph->hp_l);
 		return -1;
 	}
@@ -112,8 +117,9 @@ int hepv2_received(char *buf, unsigned int len, struct receive_info *ri)
 	hl = hep_offset = sizeof(struct hep_hdr);
 	end = buf + len;
 	if(unlikely(len < hep_offset)) {
-		LOG(L_ERR, "ERROR: sipcapture:hep_msg_received len less than offset "
-				   "[%i] vs [%i]\n",
+		LOG(L_ERR,
+				"ERROR: sipcapture:hep_msg_received len less than offset "
+				"[%i] vs [%i]\n",
 				len, hep_offset);
 		return -1;
 	}
@@ -129,11 +135,13 @@ int hepv2_received(char *buf, unsigned int len, struct receive_info *ri)
 			hl += sizeof(struct hep_ip6hdr);
 			break;
 		default:
-			LOG(L_ERR, "ERROR: sipcapture:hep_msg_received:  unsupported "
-					   "family [%d]\n",
+			LOG(L_ERR,
+					"ERROR: sipcapture:hep_msg_received:  unsupported "
+					"family [%d]\n",
 					heph->hp_f);
 			return -1;
 	}
+	LM_DBG("header offset: %d af: %d\n", hl, (int)heph->hp_f);
 
 	/* PROTO */
 	if(heph->hp_p == IPPROTO_UDP)
@@ -180,9 +188,15 @@ int hepv2_received(char *buf, unsigned int len, struct receive_info *ri)
 		return -1;
 	}
 
-	/* timming */
+	/* timing */
 	if(heph->hp_v == 2) {
 		hep_offset += sizeof(struct hep_timehdr);
+		if(unlikely(buf + hep_offset > end)) {
+			LOG(L_ERR, "HEPv2 time header "
+					   "exceeds packet boundary\n");
+			return -1;
+		}
+
 		heptime_tmp = (struct hep_timehdr *)hep_payload;
 
 		heptime->tv_sec = to_le(heptime_tmp->tv_sec);
@@ -216,14 +230,18 @@ int hepv2_received(char *buf, unsigned int len, struct receive_info *ri)
 	ri->dst_port = ntohs(heph->hp_dport);
 
 	/* cut off the offset */
-	/* 
+	/*
 	 *  len -= offset;
          *  p = buf + offset;
-	 *  memmove(buf, p, BUF_SIZE+1); 
+	 *  memmove(buf, p, BUF_SIZE+1);
 	*/
 
 	hep_payload = buf + hep_offset;
 
+	if(unlikely(len < hep_offset)) {
+		LOG(L_ERR, "Calculated payload length underflow\n");
+		return -1;
+	}
 	receive_msg(hep_payload, (unsigned int)(len - hep_offset), ri);
 
 	return -1;
@@ -243,6 +261,104 @@ int hepv3_received(char *buf, unsigned int len, struct receive_info *ri)
 	return -1;
 }
 
+/*
+ * Return the advertised HEPv3 total length after checking the control header
+ * fits and does not claim more bytes than were received, so the chunk loop
+ * stays inside the datagram. Returns -1 on a malformed/oversized header.
+ */
+static int hepv3_total_length(const char *buf, unsigned int len)
+{
+	int total_length;
+
+	if(len < sizeof(hep_ctrl_t))
+		return -1;
+	total_length = ntohs(((const hep_ctrl_t *)buf)->length);
+	if((unsigned int)total_length > len)
+		return -1;
+	return total_length;
+}
+
+/*
+ * Return the smallest valid on-wire length of a chunk: the size of the
+ * structure the generic chunk types are cast to, or the 6-byte generic
+ * header for vendor and variable length chunks.
+ */
+static unsigned int hepv3_chunk_min_length(
+		unsigned int chunk_vendor, unsigned int chunk_type)
+{
+	if(chunk_vendor != 0)
+		return sizeof(hep_chunk_t);
+
+	switch(chunk_type) {
+		case 1:	 /* ip family */
+		case 2:	 /* ip proto */
+		case 11: /* proto type */
+			return sizeof(hep_chunk_uint8_t);
+		case 3: /* src ipv4 */
+		case 4: /* dst ipv4 */
+			return sizeof(hep_chunk_ip4_t);
+		case 5: /* src ipv6 */
+		case 6: /* dst ipv6 */
+			return sizeof(hep_chunk_ip6_t);
+		case 7:	 /* src port */
+		case 8:	 /* dst port */
+		case 13: /* keep alive timer */
+			return sizeof(hep_chunk_uint16_t);
+		case 9:	 /* time sec */
+		case 10: /* time usec */
+		case 12: /* capture id */
+			return sizeof(hep_chunk_uint32_t);
+		default:
+			return sizeof(hep_chunk_t);
+	}
+}
+
+/*
+ * Verify the chunk at offset off is safe to read before it is cast and its
+ * fields are dereferenced: the 6-byte generic header must lie within the
+ * blen-byte buffer, it must advertise at least the size of the structure its
+ * type is read as (so the loop advances and the typed field is inside it),
+ * and the whole chunk must fit. Returns 0 if in bounds, -1 if not.
+ */
+static int hepv3_chunk_ok(const char *buf, unsigned int blen, unsigned int off)
+{
+	const hep_chunk_t *chunk;
+	unsigned int chunk_length;
+
+	if(off + sizeof(hep_chunk_t) > blen)
+		return -1;
+	chunk = (const hep_chunk_t *)(buf + off);
+	chunk_length = ntohs(chunk->length);
+	/* the on-wire chunk length includes the 6-byte generic header (see the
+	 * encoder in hep.h) */
+	if(chunk_length < hepv3_chunk_min_length(
+			   ntohs(chunk->vendor_id), ntohs(chunk->type_id))
+			|| off + chunk_length > blen)
+		return -1;
+	return 0;
+}
+
+/*
+ * Verify that the chunks the receive path dereferences after parsing are all
+ * present: ip family and proto, both ports, proto type, and the source and
+ * destination address chunks of the family the packet announces (the
+ * address chunks are read by that family).
+ * Returns 0 if they are, -1 if not.
+ */
+static int hepv3_required_chunks_ok(const struct hep_generic_recv *hg)
+{
+	if(hg->ip_family == NULL || hg->ip_proto == NULL || hg->src_port == NULL
+			|| hg->dst_port == NULL || hg->proto_t == NULL)
+		return -1;
+	if(hg->ip_family->data == AF_INET6
+			&& (hg->hep_src_ip6 == NULL || hg->hep_dst_ip6 == NULL))
+		return -1;
+	if(hg->ip_family->data == AF_INET
+			&& (hg->hep_src_ip4 == NULL || hg->hep_dst_ip4 == NULL))
+		return -1;
+	return 0;
+}
+
 int parsing_hepv3_message(char *buf, unsigned int len)
 {
 
@@ -260,11 +376,13 @@ int parsing_hepv3_message(char *buf, unsigned int len)
 	int totelem = 0;
 	int chunk_vendor = 0, chunk_type = 0, chunk_length = 0;
 	int total_length = 0;
+	static char ipbuf1[IP_ADDR_MAX_STR_SIZE];
+	static char portbuf1[INT2STR_MAX_LEN];
 
 
 	hg = (struct hep_generic_recv *)pkg_malloc(sizeof(struct hep_generic_recv));
 	if(hg == NULL) {
-		LM_ERR("no more pkg memory left for hg\n");
+		PKG_MEM_ERROR_FMT("for hg\n");
 		return -1;
 	}
 
@@ -277,8 +395,10 @@ int parsing_hepv3_message(char *buf, unsigned int len)
 	/* HEADER */
 	hg->header = (hep_ctrl_t *)(buf);
 
-	/*Packet size */
-	total_length = ntohs(hg->header->length);
+	/* bound parsing by the bytes actually received (see hepv3_total_length) */
+	total_length = hepv3_total_length(buf, len);
+	if(total_length < 0)
+		goto error;
 
 	ri.src_port = 0;
 	ri.dst_port = 0;
@@ -296,18 +416,15 @@ int parsing_hepv3_message(char *buf, unsigned int len)
 		/*OUR TMP DATA */
 		tmp = buf + i;
 
+		/* bounds-check the chunk before dereferencing any field */
+		if(hepv3_chunk_ok(buf, total_length, i) < 0)
+			goto error;
+
 		chunk = (struct hep_chunk *)tmp;
 
 		chunk_vendor = ntohs(chunk->vendor_id);
 		chunk_type = ntohs(chunk->type_id);
 		chunk_length = ntohs(chunk->length);
-
-
-		/* if chunk_length */
-		if(chunk_length == 0) {
-			/* BAD LEN we drop this packet */
-			goto error;
-		}
 
 		/* SKIP not general Chunks */
 		if(chunk_vendor != 0) {
@@ -440,6 +557,11 @@ int parsing_hepv3_message(char *buf, unsigned int len)
 		goto done;
 	}
 
+	if(hepv3_required_chunks_ok(hg) < 0) {
+		LM_ERR("required chunks missing\n");
+		goto done;
+	}
+
 	if(dst_ip.af == 0 || src_ip.af == 0) {
 		LM_ERR("NO IP's set\n");
 		goto done;
@@ -461,7 +583,7 @@ int parsing_hepv3_message(char *buf, unsigned int len)
 	/* a little bit memory */
 	si = (struct socket_info *)pkg_malloc(sizeof(struct socket_info));
 	if(si == 0) {
-		LOG(L_ERR, "ERROR: new_sock_info: memory allocation error\n");
+		PKG_MEM_ERROR_FMT("for socket_info\n");
 		goto error;
 	}
 
@@ -480,13 +602,14 @@ int parsing_hepv3_message(char *buf, unsigned int len)
 	si->flags = 0;
 	si->addr_info_lst = 0;
 
-	si->address_str.s = ip_addr2a(&si->address);
+	si->address_str.len =
+			ip_addr2sbuf(&si->address, ipbuf1, sizeof(ipbuf1) - 1);
+	ipbuf1[si->address_str.len] = 0;
+	si->address_str.s = ipbuf1;
 
-	si->address_str.len = strlen(si->address_str.s);
-
-	si->port_no_str.s = int2str(si->port_no, &tmp_len);
+	si->port_no_str.s =
+			int2strbuf(si->port_no, portbuf1, INT2STR_MAX_LEN, &tmp_len);
 	si->port_no_str.len = tmp_len;
-	si->address_str.len = strlen(si->address_str.s);
 
 	si->name.len = si->address_str.len;
 	si->name.s = si->address_str.s;
@@ -547,7 +670,7 @@ int hepv3_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 
 	hg = (struct hep_generic_recv *)pkg_malloc(sizeof(struct hep_generic_recv));
 	if(hg == NULL) {
-		LM_ERR("no more pkg memory left for hg\n");
+		PKG_MEM_ERROR_FMT("for hg\n");
 		return -1;
 	}
 
@@ -560,8 +683,10 @@ int hepv3_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 	/* HEADER */
 	hg->header = (hep_ctrl_t *)(buf);
 
-	/*Packet size */
-	total_length = ntohs(hg->header->length);
+	/* bound parsing by the bytes actually received (see hepv3_total_length) */
+	total_length = hepv3_total_length(buf, len);
+	if(total_length < 0)
+		goto error;
 
 	dst_ip.af = 0;
 	src_ip.af = 0;
@@ -577,17 +702,15 @@ int hepv3_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 		/*OUR TMP DATA */
 		tmp = buf + i;
 
+		/* bounds-check the chunk before dereferencing any field */
+		if(hepv3_chunk_ok(buf, total_length, i) < 0)
+			goto error;
+
 		chunk = (struct hep_chunk *)tmp;
 
 		chunk_vendor = ntohs(chunk->vendor_id);
 		chunk_type = ntohs(chunk->type_id);
 		chunk_length = ntohs(chunk->length);
-
-		/* if chunk_length */
-		if(chunk_length == 0) {
-			/* BAD LEN we drop this packet */
-			goto error;
-		}
 
 		/* SKIP not general Chunks */
 		if(chunk_vendor != 0) {
@@ -720,6 +843,11 @@ int hepv3_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 		goto done;
 	}
 
+	if(hepv3_required_chunks_ok(hg) < 0) {
+		LM_ERR("required chunks missing\n");
+		goto done;
+	}
+
 	if(dst_ip.af == 0 || src_ip.af == 0) {
 		LM_ERR("NO IP's set\n");
 		goto done;
@@ -738,11 +866,10 @@ int hepv3_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 	else if(hg->ip_proto->data == IPPROTO_UDP)
 		msg->rcv.proto = PROTO_UDP;
 
-	if(payload != NULL)
-	{
+	if(payload != NULL) {
 		ret = len - payload_len;
 		msg->buf = payload;
-                msg->len = payload_len;
+		msg->len = payload_len;
 	}
 
 
@@ -786,8 +913,9 @@ int hepv2_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 	hl = hep_offset = sizeof(struct hep_hdr);
 	end = buf + len;
 	if(unlikely(len < hep_offset)) {
-		LOG(L_ERR, "ERROR: sipcapture:hep_msg_received len less than offset "
-				   "[%i] vs [%i]\n",
+		LOG(L_ERR,
+				"ERROR: sipcapture:hep_msg_received len less than offset "
+				"[%i] vs [%i]\n",
 				len, hep_offset);
 		return -1;
 	}
@@ -803,11 +931,13 @@ int hepv2_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 			hl += sizeof(struct hep_ip6hdr);
 			break;
 		default:
-			LOG(L_ERR, "ERROR: sipcapture:hep_msg_received:  unsupported "
-					   "family [%d]\n",
+			LOG(L_ERR,
+					"ERROR: sipcapture:hep_msg_received:  unsupported "
+					"family [%d]\n",
 					heph->hp_f);
 			return -1;
 	}
+	LM_DBG("header offset: %d af: %d\n", hl, (int)heph->hp_f);
 
 	/* PROTO */
 	if(heph->hp_p == IPPROTO_UDP)
@@ -854,7 +984,7 @@ int hepv2_message_parse(char *buf, unsigned int len, sip_msg_t *msg)
 		return -1;
 	}
 
-	/* timming */
+	/* timing */
 	if(heph->hp_v == 2) {
 		hep_offset += sizeof(struct hep_timehdr);
 		heptime_tmp = (struct hep_timehdr *)hep_payload;
@@ -917,7 +1047,7 @@ int hepv3_get_chunk(struct sip_msg *msg, char *buf, unsigned int len,
 
 	hg = (struct hep_generic_recv *)pkg_malloc(sizeof(struct hep_generic_recv));
 	if(hg == NULL) {
-		LM_ERR("no more pkg memory left for hg\n");
+		PKG_MEM_ERROR_FMT("for hg\n");
 		return -1;
 	}
 
@@ -926,8 +1056,10 @@ int hepv3_get_chunk(struct sip_msg *msg, char *buf, unsigned int len,
 	/* HEADER */
 	hg->header = (hep_ctrl_t *)(buf);
 
-	/*Packet size */
-	total_length = ntohs(hg->header->length);
+	/* bound parsing by the bytes actually received (see hepv3_total_length) */
+	total_length = hepv3_total_length(buf, len);
+	if(total_length < 0)
+		goto error;
 
 	i = sizeof(hep_ctrl_t);
 
@@ -936,17 +1068,15 @@ int hepv3_get_chunk(struct sip_msg *msg, char *buf, unsigned int len,
 		/*OUR TMP DATA */
 		tmp = buf + i;
 
+		/* bounds-check the chunk before dereferencing any field */
+		if(hepv3_chunk_ok(buf, total_length, i) < 0)
+			goto error;
+
 		chunk = (struct hep_chunk *)tmp;
 
 		chunk_vendor = ntohs(chunk->vendor_id);
 		chunk_type = ntohs(chunk->type_id);
 		chunk_length = ntohs(chunk->length);
-
-		/* if chunk_length */
-		if(chunk_length == 0) {
-			/* BAD LEN we drop this packet */
-			goto error;
-		}
 
 		/* SKIP not general Chunks */
 		if(chunk_vendor != 0) {

@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -26,11 +28,6 @@
 #include "../../core/parser/msg_parser.h"
 
 
-extern struct trusted_list ***perm_trust_table;    /* Pointer to current trusted hash table pointer */
-extern struct trusted_list **perm_trust_table_1;   /* Pointer to trusted hash table 1 */
-extern struct trusted_list **perm_trust_table_2;   /* Pointer to trusted hash table 2 */
-
-
 /*
  * Initialize data structures
  */
@@ -41,6 +38,18 @@ int init_trusted(void);
  * Open database connections if necessary
  */
 int init_child_trusted(int rank);
+
+
+/*
+ * Get pointer to the current table and increase reference count
+ */
+struct trusted_table *get_trusted_table(void);
+
+/*
+ * Release the reference obtained by get_trusted_table().
+ * Must be called when done with the table, and invalidates the pointer.
+ */
+void put_trusted_table(struct trusted_table *);
 
 
 /*
@@ -58,33 +67,33 @@ void clean_trusted(void);
 /*
  * Check if request comes from trusted ip address with matching from URI
  */
-int ki_allow_trusted(sip_msg_t* _msg);
+int ki_allow_trusted(sip_msg_t *_msg);
 
 /*
  * Check if request comes from trusted ip address with matching from URI
  */
-int allow_trusted(struct sip_msg* _msg, char* _s1, char* _s2);
+int allow_trusted(struct sip_msg *_msg, char *_s1, char *_s2);
 
 
 /*
  * Checks based on request's source address, protocol, and From URI
  * if request can be trusted without authentication.
  */
-int allow_trusted_0(struct sip_msg* _msg, char* str1, char* str2);
+int allow_trusted_0(struct sip_msg *_msg, char *str1, char *str2);
 
 
 /*
  * Checks based on source address and protocol given in pvar arguments and
- * and requests's From URI, if request can be trusted without authentication.
+ * requests' From URI, if request can be trusted without authentication.
  */
-int allow_trusted_2(struct sip_msg* _msg, char* _src_ip_sp, char* _proto_sp);
+int allow_trusted_2(struct sip_msg *_msg, char *_src_ip_sp, char *_proto_sp);
 
 /*
  * Checks based on source address and protocol given in pvar arguments and
  * provided URI, if request can be trusted without authentication.
  */
-int allow_trusted_3(struct sip_msg* _msg, char* _src_ip_sp, char* _proto_sp,
-		char* _from_uri);
+int allow_trusted_3(struct sip_msg *_msg, char *_src_ip_sp, char *_proto_sp,
+		char *_from_uri);
 
 int reload_trusted_table_cmd(void);
 

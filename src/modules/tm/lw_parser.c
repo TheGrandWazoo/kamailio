@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -21,24 +23,18 @@
 
 #include "../../core/parser/keys.h"
 #include "../../core/parser/hf.h"
+#include "../../core/parser/parse_bytes.h"
 #include "../../core/parser/parser_f.h"
 #include "lw_parser.h"
 
-/* macros from the core parser */
-#define LOWER_BYTE(b) ((b) | 0x20)
-#define LOWER_DWORD(d) ((d) | 0x20202020)
-
-#define READ(val) \
-	(*(val + 0) + (*(val + 1) << 8) + (*(val + 2) << 16) + (*(val + 3) << 24))
-
-#define LW_HNAME_SET(_p, _end, _hnlen, _type, _htype) \
-	do { \
-		if(_end - _p > _hnlen) { \
+#define LW_HNAME_SET(_p, _end, _hnlen, _type, _htype)    \
+	do {                                                 \
+		if(_end - _p > _hnlen) {                         \
 			if(_p[_hnlen] == ':' || _p[_hnlen] == ' ') { \
-				*_type = _htype; \
-				_p += _hnlen; \
-			} \
-		} \
+				*_type = _htype;                         \
+				_p += _hnlen;                            \
+			}                                            \
+		}                                                \
 	} while(0)
 
 /*
@@ -59,7 +55,7 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 	}
 
 	p = begin;
-	val = LOWER_DWORD(READ(p));
+	val = ksr_ascii_lower_u32(ksr_read_u32le(p));
 	*type = HDR_OTHER_T;
 
 	switch(val) {
@@ -86,7 +82,7 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 				return begin;
 			}
 
-			val = LOWER_DWORD(READ(p + 4));
+			val = ksr_ascii_lower_u32(ksr_read_u32le(p + 4));
 
 			switch(val) {
 
@@ -106,9 +102,9 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 				return begin;
 			}
 
-			if((LOWER_DWORD(READ(p + 4)) == _y_re_)
-					&& (LOWER_DWORD(READ(p + 8)) == _quir_)
-					&& (LOWER_BYTE(*(p + 12)) == 'e')) {
+			if((ksr_ascii_lower_u32(ksr_read_u32le(p + 4)) == _y_re_)
+					&& (ksr_ascii_lower_u32(ksr_read_u32le(p + 8)) == _quir_)
+					&& (ksr_ascii_lower_u8((unsigned char)*(p + 12)) == 'e')) {
 				LW_HNAME_SET(p, end, 13, type, HDR_PROXYREQUIRE_T);
 				break;
 			}
@@ -119,10 +115,10 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 				return begin;
 			}
 
-			if((LOWER_DWORD(READ(p + 4)) == _ent__)
-					&& (LOWER_DWORD(READ(p + 8)) == _leng_)
-					&& (LOWER_BYTE(*(p + 12)) == 't')
-					&& (LOWER_BYTE(*(p + 13)) == 'h')) {
+			if((ksr_ascii_lower_u32(ksr_read_u32le(p + 4)) == _ent__)
+					&& (ksr_ascii_lower_u32(ksr_read_u32le(p + 8)) == _leng_)
+					&& (ksr_ascii_lower_u8((unsigned char)*(p + 12)) == 't')
+					&& (ksr_ascii_lower_u8((unsigned char)*(p + 13)) == 'h')) {
 				LW_HNAME_SET(p, end, 14, type, HDR_CONTENTLENGTH_T);
 				break;
 			}
@@ -133,7 +129,7 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 				return begin;
 			}
 
-			val = LOWER_DWORD(READ(p + 4));
+			val = ksr_ascii_lower_u32(ksr_read_u32le(p + 4));
 
 			switch(val) {
 				case __id1_:
@@ -148,7 +144,7 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 				return begin;
 			}
 
-			if(LOWER_BYTE(*(p + 4)) == 'e') {
+			if(ksr_ascii_lower_u8((unsigned char)*(p + 4)) == 'e') {
 				LW_HNAME_SET(p, end, 5, type, HDR_ROUTE_T);
 				break;
 			}
@@ -159,8 +155,8 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 				return begin;
 			}
 
-			if((LOWER_DWORD(READ(p + 4)) == _forw_)
-					&& (LOWER_DWORD(READ(p + 8)) == _ards_)) {
+			if((ksr_ascii_lower_u32(ksr_read_u32le(p + 4)) == _forw_)
+					&& (ksr_ascii_lower_u32(ksr_read_u32le(p + 8)) == _ards_)) {
 				LW_HNAME_SET(p, end, 12, type, HDR_MAXFORWARDS_T);
 				break;
 			}
@@ -168,7 +164,7 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 
 		default:
 			/* compact headers */
-			switch(LOWER_BYTE(*p)) {
+			switch(ksr_ascii_lower_u8((unsigned char)*p)) {
 
 				case 'v': /* Via */
 					if((*(p + 1) == ' ') || (*(p + 1) == ':')) {
@@ -187,7 +183,7 @@ char *lw_get_hf_name(char *begin, char *end, enum _hdr_types_t *type)
 					break;
 
 				case 't': /* To */
-					if(LOWER_BYTE(*(p + 1)) == 'o') {
+					if(ksr_ascii_lower_u8((unsigned char)*(p + 1)) == 'o') {
 						if((*(p + 2) == ' ') || (*(p + 2) == ':')) {
 							p += 2;
 							*type = HDR_TO_T;
@@ -236,7 +232,7 @@ char *lw_next_line(char *buf, char *buf_end)
 
 	} while((c < buf_end)
 			&& ((*c == ' ')
-					   || (*c == '\t'))); /* next line begins with whitespace line folding */
+					|| (*c == '\t'))); /* next line begins with whitespace line folding */
 
 	return c;
 }
@@ -252,10 +248,11 @@ char *lw_find_via(char *buf, char *buf_end)
 	p = eat_line(buf, buf_end - buf);
 
 	while(buf_end - p > 4) {
-		val = LOWER_DWORD(READ(p));
+		val = ksr_ascii_lower_u32(ksr_read_u32le(p));
 		if((val == _via1_) || (val == _via2_)
-				|| ((LOWER_BYTE(*p) == 'v') /* compact header */
-						   && ((*(p + 1) == ' ') || (*(p + 1) == ':'))))
+				|| ((ksr_ascii_lower_u8((unsigned char)*p)
+							== 'v') /* compact header */
+						&& ((*(p + 1) == ' ') || (*(p + 1) == ':'))))
 			return p;
 
 		p = lw_next_line(p, buf_end);

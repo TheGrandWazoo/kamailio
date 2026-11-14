@@ -24,18 +24,20 @@
 
 #include "tls_hooks.h"
 #include "tls_hooks_init.h"
+#include "tcp_conn.h"
 #include "globals.h"
+#include "receive.h"
 
 #ifdef TLS_HOOKS
 
-struct tls_hooks tls_hook= {0};
+struct tls_hooks tls_hook = {0};
 
-static int tls_hooks_loaded=0;
+static int tls_hooks_loaded = 0;
 
-int register_tls_hooks(struct tls_hooks* h)
+int register_tls_hooks(struct tls_hooks *h)
 {
-	if (!tls_disable) {
-		tls_hook=*h;
+	if(!tls_disable) {
+		tls_hook = *h;
 		tls_hooks_loaded++;
 		return 0;
 	}
@@ -43,41 +45,69 @@ int register_tls_hooks(struct tls_hooks* h)
 }
 
 
-int tls_init(struct socket_info* si)
+int tls_init(struct socket_info *si)
 {
-	if (tls_hook.init_si)
+	if(tls_hook.init_si)
 		return tls_hook.init_si(si);
 	return -1;
 }
 
 int tls_has_init_si()
 {
-	return (tls_hook.init_si!=0);
+	return (tls_hook.init_si != 0);
 }
 
 int init_tls()
 {
-	if (tls_hook.init)
+	if(tls_hook.init)
 		return tls_hook.init();
 	return 0;
 }
 
 int pre_init_tls()
 {
-	if (tls_hook.pre_init)
+	if(tls_hook.pre_init)
 		return tls_hook.pre_init();
 	return 0;
 }
 
 void destroy_tls()
 {
-	if (tls_hook.destroy)
+	if(tls_hook.destroy)
 		tls_hook.destroy();
 }
 
 int tls_loaded()
 {
 	return tls_hooks_loaded;
+}
+
+int tls_read(struct tcp_connection *c, rd_conn_flags_t *flags)
+{
+	int bytes;
+	char *buf;
+	unsigned int len;
+
+	bytes = tls_hook_read(c, flags);
+
+	if(bytes <= 0) {
+		return bytes;
+	}
+
+	if(ksr_evrt_received_mode & KSR_EVRT_RECEIVED_DATAIN) {
+		buf = c->req.parsed;
+		len = c->req.pos - c->req.parsed;
+		if(ksr_evrt_received(buf, &len, &c->rcv, KSR_EVRT_RECEIVED_DATAIN)
+				< 0) {
+			LM_DBG("dropping the received data and closing\n");
+			c->req.content_len = 0;
+			c->req.error = TCP_READ_ERROR;
+			c->req.state = H_SKIP;
+			return -1;
+		}
+	}
+
+	return bytes;
 }
 
 #endif /* TLS_HOOKS */

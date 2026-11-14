@@ -31,7 +31,7 @@
 		<section>
 			<title>&kamailio; Modules</title>
 			<para>
-			The module depends on the following modules (in the other words
+			The module depends on the following modules (in other words
 			the listed modules must be loaded before this module):
 			<itemizedlist>
 			<listitem>
@@ -132,9 +132,11 @@ modparam("auth_db", "domain_column", "domain")
 		<para>
 		This is the name of the column holding passwords. Passwords can be
 		either stored as plain text or pre-calculated HA1 strings. HA1 strings
-		are MD5 hashes of username, password, and realm. HA1 strings are more
-		safe because the server doesn't need to know plaintext passwords and
-		they cannot be obtained from HA1 strings.
+		are hashes of username, password, and realm for the digest algorithm
+		used by authentication. When pre-calculated HA1 strings are used, they
+		must match the algorithm of the credentials being verified. HA1
+		strings are safer because the server doesn't need to know plaintext
+		passwords and they cannot be obtained from HA1 strings.
 		</para>
 		<para>
 		Default value is <quote>ha1</quote>.
@@ -189,7 +191,7 @@ modparam("auth_db", "password_column_2", "ha1_2")
 		<para>
 		If the parameter is set to 1 then the HA1 value will be calculated
 		from the column specified in the <quote>password_column</quote>
-		parameter.
+		parameter, using the digest algorithm from the received credentials.
 		</para>
 		<para>
 		The <quote>password_column_2</quote>column contain also HA1 strings
@@ -365,14 +367,14 @@ modparam("auth_db", "force_generate_avps", 1)
 			used to authenticate a previous request
 			</para></listitem>
 			<listitem><para>
-			<emphasis>-8 (authuser mismatch)</emphasis> - depending on the method, th
+			<emphasis>-8 (authuser mismatch)</emphasis> - depending on the method, the
 			From/To/RURI user does not match the authentication user (see auth_check() function).
 			</para></listitem>
 		</itemizedlist>
 		<para>Meaning of the parameters is as follows:</para>
 		<itemizedlist>
 		<listitem>
-			<para><emphasis>realm</emphasis> - Realm is a opaque string that
+			<para><emphasis>realm</emphasis> - Realm is an opaque string that
 			the user agent should present to the user so he can decide what
 			username and password to use. Usually this is domain of the host
 			the server is running on.
@@ -448,7 +450,7 @@ if (!www_authorize("kamailio.org", "subscriber")) {
 		<para>Meaning of the parameters is as follows:</para>
 		<itemizedlist>
 		<listitem>
-			<para><emphasis>realm</emphasis> - Realm is a opaque string that
+			<para><emphasis>realm</emphasis> - Realm is an opaque string that
 			the user agent should present to the user so he can decide what
 			username and password to use. Usually this is domain of the host
 			the server is running on.
@@ -506,7 +508,7 @@ if (!proxy_authorize("$fd", "subscriber)) {
 		<para>The function combines the functionalities of
 		<function moreinfo="none">www_authenticate</function> and
 		<function moreinfo="none">proxy_authenticate</function>, first being
-		exectuted if the SIP request is a REGISTER, the second for the rest.
+		executed if the SIP request is a REGISTER, the second for the rest.
 		</para>
 		<para>
 		In addition, a matter of <emphasis>flags</emphasis> parameter value,
@@ -518,7 +520,7 @@ if (!proxy_authorize("$fd", "subscriber)) {
 		<para>Meaning of the parameters is as follows:</para>
 		<itemizedlist>
 		<listitem>
-			<para><emphasis>realm</emphasis> - Realm is a opaque string that
+			<para><emphasis>realm</emphasis> - Realm is an opaque string that
 			the user agent should present to the user so he can decide what
 			username and password to use. Usually this is domain of the host
 			the server is running on.
@@ -549,7 +551,8 @@ if (!proxy_authorize("$fd", "subscriber)) {
 			match the authentication user. All other requests: From header must
 			match the authentication user. If bit 2 is set as well (flags==3),
 			the ID check is skipped for INVITE, BYE, PRACK, UPDATE, MESSAGE
-			- these requests can come with anonymous caller id.
+			- these requests can come with anonymous caller id. If set to 0,
+			then all user checks are skipped.
 			</para>
 			<para>
 			Additionally all domains in the checked URIs and the realm in the
@@ -586,7 +589,7 @@ if (!auth_check("$fd", "subscriber", "1")) {
 		</para>
 		<para>
 		In addition, if the subscriber record is found, then the load_credentials
-		attributes are loaded. An use case can be loading the credential attributes
+		attributes are loaded. A use case can be loading the credential attributes
 		for callee.
 		</para>
 		<para>Meaning of the parameters is as follows:</para>
@@ -632,4 +635,3 @@ if (!is_subscriber("$ru", "subscriber", "3")) {
 
 	</section>
 </chapter>
-

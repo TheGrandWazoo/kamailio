@@ -2,10 +2,12 @@
  * pv_headers
  *
  * Copyright (C)
- * 2020 Victor Seva <vseva@sipwise.com>
+ * 2020-2023 Victor Seva <vseva@sipwise.com>
  * 2018 Kirill Solomko <ksolomko@sipwise.com>
  *
  * This file is part of Kamailio, a free SIP server.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,15 +50,39 @@ int pvh_str_free(str *s)
 
 int pvh_str_copy(str *dst, str *src, unsigned int max_size)
 {
-	unsigned int src_len = src->len + 1 >= max_size ? max_size - 1 : src->len;
+	unsigned int src_len = 0;
 
 	if(src == NULL || dst == NULL || src->len <= 0)
 		return -1;
 
+	src_len = src->len + 1 >= max_size ? max_size - 1 : src->len;
 	memset(dst->s, 0, dst->len);
 	memcpy(dst->s, src->s, src_len);
 	dst->s[src_len] = '\0';
 	dst->len = src_len;
+
+	return 1;
+}
+
+int pvh_str_append(str *dst, str *src, unsigned int max_size)
+{
+	int src_len = 0;
+
+	if(src == NULL || dst == NULL || src->len < 0)
+		return -1;
+	if(src->len == 0)
+		return 1;
+
+	if(dst->len + src->len + 1 >= max_size) {
+		src_len = max_size - dst->len - 1;
+	} else {
+		src_len = src->len;
+	}
+	if(src_len <= 0)
+		return -2;
+	memcpy(dst->s + dst->len, src->s, src_len);
+	dst->s[dst->len + src_len] = '\0';
+	dst->len += src_len;
 
 	return 1;
 }
@@ -119,21 +145,22 @@ char *pvh_detect_split_char(char *val)
 
 	quote_a = strchr(val, '"');
 	if(quote_a == NULL || split < quote_a) {
-		LM_DBG("split marker detected[%ld], not between quotes\n", split - val);
+		LM_DBG("split marker detected[%ld], not between quotes\n",
+				(long int)(split - val));
 		return split;
 	}
 
 	quote_b = strchr(val + (split - quote_a + 1), '"');
 	if(quote_b == NULL) {
 		LM_DBG("split marker detected[%ld], quote occurrence unbalanced[%ld]\n",
-				split - val, quote_b - val);
+				(long int)(split - val), (long int)(quote_b - val));
 		return split;
 	}
 	return pvh_detect_split_char(val + (quote_b - val + 1));
 }
 
-int pvh_split_values(str *s, char d[][header_value_size], int *d_size,
-		int keep_spaces, char *marker)
+int pvh_split_values(str *s, char d[][_pvh_params.hdr_value_size],
+		unsigned int d_capacity, int *d_size, int keep_spaces, char *marker)
 {
 	char *p = NULL;
 	int idx = 0, c_idx = 0;
@@ -157,24 +184,36 @@ int pvh_split_values(str *s, char d[][header_value_size], int *d_size,
 			}
 			if(c_idx == 0)
 				continue;
-			if(c_idx + 1 < header_value_size)
+			if(c_idx + 1 < _pvh_params.hdr_value_size)
 				c_idx++;
 			d[*d_size][c_idx] = '\0';
 			c_idx = 0;
 			continue;
 		}
-		if(c_idx == 0)
+		if(c_idx == 0) {
+			if((unsigned int)(*d_size + 1) >= d_capacity) {
+				LM_ERR("pvh_hdr_name_size %u reached\n", d_capacity);
+				goto error;
+			}
 			(*d_size)++;
-		strncpy(&d[*d_size][c_idx++], p, 1);
+		}
+		if(c_idx + 1 >= _pvh_params.hdr_value_size) {
+			LM_ERR("split value exceeds configured size (%u)\n",
+					_pvh_params.hdr_value_size);
+			goto error;
+		}
+		d[*d_size][c_idx++] = *p;
 	}
 
 	if(c_idx > 0) {
-		if(c_idx >= header_value_size)
-			c_idx--;
 		d[*d_size][c_idx] = '\0';
 	}
 
 	(*d_size)++;
 
 	return 1;
+
+error:
+	*d_size = 0;
+	return -1;
 }

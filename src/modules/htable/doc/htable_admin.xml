@@ -137,7 +137,7 @@ $ cat /usr/local/etc/kamailio/dbtext/htable
 3:key:1:0:value1:0
 
 # The array key will be loaded in memory in the following format:
-$ kamcmd htable.dump htable
+$ kamctl rpc htable.dump htable
 {
         entry: 35
         size: 1
@@ -180,10 +180,10 @@ $ kamcmd htable.dump htable
 }
 
 # Now let's delete a particular entry in the array: key[0].
-$ kamcmd htable.delete htable key[0]
+$ kamctl rpc htable.delete htable key[0]
 
 # The array key will look like this after a key was deleted:
-$ kamcmd htable.dump htable
+$ kamctl rpc htable.dump htable
 {
         entry: 50
         size: 1
@@ -323,7 +323,7 @@ $ kamcmd htable.dump htable
 		<itemizedlist>
 		<listitem>
 		<para>
-		"htname=&gt;size=_number_;autoexpire=_number_;dbtable=_string_"
+			"htname=&gt;size=_number_;autoexpire=_number_;dbtable=_string_;fpath=_string_"
 		</para>
 		</listitem>
 		</itemizedlist>
@@ -357,15 +357,69 @@ $ kamcmd htable.dump htable
 		<listitem>
 		<para>
 			<emphasis>autoexpire</emphasis> -time in seconds to delete an item
-			from a hash table if no update was done to it. If is missing or set
+			from a hash table if no update was done to it. If it is missing or set
 			to 0, the items won't expire.
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>reloadat</emphasis> - time in seconds to reload a hash table.
+			For each new seconds interval, the hash table will be reloaded. You can catch
+			the reload on the event_route: htable:reloaded:&lt;htable&gt;.
 		</para>
 		</listitem>
 		<listitem>
 		<para>
 			<emphasis>dbtable</emphasis> - name of database to be loaded at
 			startup in hash table. If empty or missing, no data will be loaded.
+			It cannot be used together with <emphasis>fpath</emphasis>.
 		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>fpath</emphasis> - path of a file to be loaded into the hash
+			table at startup. It cannot be used together with
+			<emphasis>dbtable</emphasis>. Each non-empty line must have four fields:
+			<quote>key|value-type|value|expire</quote>, where the delimiter can be
+			changed with <emphasis>fdelim</emphasis>. The value type is 0 for a
+			string and 1 for a signed integer. The expire field is an absolute Unix
+			timestamp, or 0 for an entry that does not expire. Entries whose timestamp
+			is already in the past are not loaded. A missing file or malformed line
+			causes module initialization to fail.
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>ftype</emphasis> - encoding used by a file-backed hash table.
+			The default value 0 stores keys and string values in clear text. Such
+			values cannot contain the configured delimiter, carriage return, or line
+			feed. Value 1 stores keys and string values as unpadded Base64URL; padded
+			Base64URL is also accepted when loading. Integer values are always stored
+			as decimal text.
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>fdelim</emphasis> - single character used to separate fields
+			in a file-backed hash table. The default value is <quote>|</quote>. With
+			<emphasis>ftype</emphasis> set to 1, the delimiter cannot be part of the
+			Base64URL alphabet or the padding character <quote>=</quote>.
+		</para>
+		<para>
+			For example, the clear-text form can contain:
+		</para>
+		<programlisting format="linespecific">
+customer42|0|active|1790000000
+counter|1|-23|0
+</programlisting>
+		<para>
+			With <emphasis>ftype=1</emphasis>, the same records are stored with
+			unpadded Base64URL keys and string values:
+		</para>
+		<programlisting format="linespecific">
+Y3VzdG9tZXI0Mg|0|YWN0aXZl|1790000000
+Y291bnRlcg|1|-23|0
+</programlisting>
 		</listitem>
 		<listitem>
 		<para>
@@ -385,10 +439,10 @@ $ kamcmd htable.dump htable
 		</listitem>
 		<listitem>
 		<para>
-			<emphasis>dbmode</emphasis> - if set to 1, the content of hash
-			table is written to database table when the SIP server is stopped
-			(i.e., ensure persistency over restarts). Default value is 0 (no
-			write back to db table).
+			<emphasis>dbmode</emphasis> - if set to 1, the content of the hash
+			table is written to its configured database table or file path when the
+			SIP server is stopped (i.e., ensure persistency over restarts). File
+			write-back uses an atomic replacement. Default value is 0 (no write-back).
 		</para>
 		</listitem>
 		<listitem>
@@ -412,6 +466,51 @@ $ kamcmd htable.dump htable
 			peers). Please note, module parameter <quote>enable_dmq</quote> must also be set in
 			order for this to apply (see below). Default is 0 (no replication).
 		</para>
+		<para>
+			When replication is enabled for a htable, each cell carries a 'last_modified'
+			timestamp with millisecond precision, updated on every value change. This
+			is included in <emphasis>SET_CELL</emphasis> and <emphasis>SYNC</emphasis>
+			DMQ payloads. A receiving peer applies an incoming value only if its 'last_modified'
+			timestamp is newer than the local cell's one (Last-Write-Wins); otherwise it keeps the local value.
+			All other DMQ actions carry no 'last_modified' timestamp and remain last-arrived-wins.
+		</para>
+		</listitem>
+		<listitem>
+			<para>
+				<emphasis>coldelim</emphasis> - the character delimeter to use when packing the htable.
+				When set, this parameter changes the column delimeter between columns in a multiple
+				column hash table. This can be useful when loading JSON data types into a hash table
+				as they conflict with the default <quote>,</quote> delimeter, allowing these values
+				to be parsed in the routing config. See the example below on parsing a JSON array from
+				an htable with <quote>;</quote> as the column delimeter.
+			</para>
+			<programlisting format="linespecific">
+...
+modparam("htable", "htable", "customer=&gt;size=8;dbtable=customer;cols='dids,description';coldelim=';'")
+...
+$avp(customer) = $sht(customer=>1);
+$var(customer_dids) = $(avp(customer){s.select,0,;});
+$var(customer_desc) = $(avp(customer){s.select,1,;});
+...
+</programlisting>
+		</listitem>
+		<listitem>
+			<para>
+				<emphasis>colnull</emphasis> - the character to use when packing a NULL value into
+				the htable from the database. This parameter can be set to the empty string or a
+				single character. This can be used to simplify checking a single column in a row
+				for emptiness, in the routing config. The example below shows how one would do that.
+			</para>
+			<programlisting format="linespecific">
+...
+modparam("htable", "htable", "customer=&gt;size=8;dbtable=customer;cols='name,description';colnull=''")
+...
+$avp(customer) = $sht(customer=>1);
+$var(customer_name) = $(avp(customer){s.select,0,;});
+if (!strempty($var(customer_name))) {
+...
+}
+</programlisting>
 		</listitem>
 		</itemizedlist>
 		<para>
@@ -426,6 +525,7 @@ $ kamcmd htable.dump htable
 modparam("htable", "htable", "a=&gt;size=4;autoexpire=7200;dbtable=htable_a;")
 modparam("htable", "htable", "b=&gt;size=5;")
 modparam("htable", "htable", "c=&gt;size=4;autoexpire=7200;initval=1;dmqreplicate=1;")
+modparam("htable", "htable", "d=&gt;size=4;autoexpire=7200;fpath=/var/lib/kamailio/d.ht;ftype=1;dbmode=1;")
 ...
 </programlisting>
 		</example>
@@ -667,8 +767,8 @@ modparam("htable", "enable_dmq", 1)
 		<title><varname>dmq_init_sync</varname> (integer)</title>
 		<para>
 			If set to 1, will request synchronization from other nodes at startup. It applies
-			to all tables having the "dmqreplicate" parameter set. As above, it is important to 
-			ensure the definition (size, autoexpire etc.) of replicated tables is identical 
+			to all tables having the "dmqreplicate" parameter set. As above, it is important to
+			ensure the definition (size, autoexpire etc.) of replicated tables is identical
 			across all instances.
 		</para>
 		<para>
@@ -763,6 +863,27 @@ modparam("htable", "event_callback_mode", 1)
 </programlisting>
 		</example>
 	</section>
+	<section id="htable.p.dmq_peer_id">
+		<title><varname>dmq_peer_id</varname> (string)</title>
+		<para>
+			The DMQ peer identifier for htable replication. This allows
+			customizing the peer name used in DMQ communication, which can be useful
+			to avoid compatibility conflicts, and for a better partitioning.
+		</para>
+		<para>
+		<emphasis>
+			Default value is <quote>htable</quote>.
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>dmq_peer_id</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("htable", "dmq_peer_id", "htable_6.1.1")
+...
+</programlisting>
+		</example>
+	</section>
 	</section>
 	<section>
 	<title>Functions</title>
@@ -793,7 +914,7 @@ sht_print();
 		</title>
 		<para>
 			Delete the item with the name 'itname' from hash table 'htname'.
-			This API function equivaluent to '$sht(htname=&gt;itname) = $null'.
+			This API function is equivalent to '$sht(htname=&gt;itname) = $null'.
 		</para>
 		<para>
 			This function can be used from ANY_ROUTE.
@@ -873,6 +994,17 @@ sht_rm_value_re("ha=>.*");
 			with'.
 		</para>
 		</listitem>
+		<listitem>
+		<para>
+			<emphasis>ew</emphasis> - match the val parameter as 'ends
+			with'.
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>in</emphasis> - match the val parameter as 'includes'.
+		</para>
+		</listitem>
 		</itemizedlist>
 		<para>
 			All parameters can be static strings or contain variables.
@@ -913,6 +1045,17 @@ sht_rm_name("ha", "re", ".*");
 			with'.
 		</para>
 		</listitem>
+		<listitem>
+		<para>
+			<emphasis>ew</emphasis> - match the val parameter as 'ends
+			with'.
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>in</emphasis> - match the val parameter as 'includes'.
+		</para>
+		</listitem>
 		</itemizedlist>
 		<para>
 			All parameters can be static strings or contain variables.
@@ -925,6 +1068,52 @@ sht_rm_name("ha", "re", ".*");
 		<programlisting format="linespecific">
 ...
 sht_rm_value("ha", "re", ".*");
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="htable.f.sht_setxs">
+		<title>
+		<function moreinfo="none">sht_setxs(htname, itname, itval, exval)</function>
+		</title>
+		<para>
+			Set the item with the name 'itname' from hash table 'htname' to string
+			value 'itval' and expire property to 'exval'.
+		</para>
+		<para>
+			The parameters can be with variables.
+		</para>
+		<para>
+			This function can be used from ANY_ROUTE.
+		</para>
+		<example>
+		<title><function>sht_setxs</function> usage</title>
+		<programlisting format="linespecific">
+...
+sht_setxs("ha", "test", "abc", "10");
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="htable.f.sht_setxi">
+		<title>
+		<function moreinfo="none">sht_setxi(htname, itname, itval, exval)</function>
+		</title>
+		<para>
+			Set the item with the name 'itname' from hash table 'htname' to integer
+			value 'itval' and expire property to 'exval'.
+		</para>
+		<para>
+			The parameters can be with variables.
+		</para>
+		<para>
+			This function can be used from ANY_ROUTE.
+		</para>
+		<example>
+		<title><function>sht_setxi</function> usage</title>
+		<programlisting format="linespecific">
+...
+sht_setxs("ha", "test", "100", "10");
 ...
 </programlisting>
 		</example>
@@ -1318,7 +1507,118 @@ if(sht_match_str_value("ha", "eq", "alice")) {
 			Alias for sht_match_str_value().
 		</para>
 	</section>
-	</section>
+    <section id="htable.f.sht_is_null">
+        <title>
+            <function moreinfo="none">sht_is_null(htname, itname)</function>
+        </title>
+        <para>
+            Check if the item with the name 'itname' from hash table 'htname' exists.
+            This API function is equivalent to '($sht(htname=&gt;itname) == $null)'.
+        </para>
+        <para>
+            This function returns:
+        </para>
+		<itemizedlist>
+            <listitem>
+                <para>
+                    <emphasis>3</emphasis> - if parameters could not be parsed
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <emphasis>2</emphasis> - if hash table is null
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <emphasis>1</emphasis> - if the value is null
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <emphasis>-1</emphasis> - if hash table default is non null
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <emphasis>-2</emphasis> - if the value is not null
+                </para>
+            </listitem>
+		</itemizedlist>
+		<para>
+			All parameters can be static strings or contain variables.
+		</para>
+        <para>
+            This function can be used from ANY_ROUTE.
+        </para>
+        <example>
+            <title><function>sht_is_null</function> usage</title>
+            <programlisting format="linespecific">
+...
+if (sht_is_null("my_ht", "my_key")) {
+    xlog("L_ERR", "could not find my_key in my_ht\n");
+}
+...
+</programlisting>
+        </example>
+    </section>
+    <section id="htable.f.sht_inc">
+        <title>
+            <function moreinfo="none">sht_inc(htname, itname)</function>
+        </title>
+        <para>
+            Atomically increment the value of 'itname' in hash table 'htname'.
+            This API function is similar to '$shtinc(htname=&gt;itname)', without returning the value.
+        </para>
+        <para>
+            This function returns 1 on successful increment or -1 otherwise.
+        </para>
+        <para>
+            All parameters can be static strings or contain variables.
+        </para>
+        <para>
+            This function can be used from ANY_ROUTE.
+        </para>
+        <example>
+            <title><function>sht_inc</function> usage</title>
+            <programlisting format="linespecific">
+...
+if (!sht_inc("my_ht", "my_key")) {
+    xlog("L_ERR", "could not increment my_key\n");
+}
+...
+</programlisting>
+        </example>
+    </section>
+    <section id="htable.f.sht_dec">
+        <title>
+            <function moreinfo="none">sht_dec(htname, itname)</function>
+        </title>
+        <para>
+            Atomically decrement the value of 'itname' in hash table 'htname'.
+            This API function is similar to '$sht_dec(htname=&gt;itname)', without returning the value.
+        </para>
+        <para>
+            This function returns 1 on successful decrement or -1 otherwise.
+        </para>
+        <para>
+            All parameters can be static strings or contain variables.
+        </para>
+        <para>
+            This function can be used from ANY_ROUTE.
+        </para>
+        <example>
+            <title><function>sht_dec</function> usage</title>
+            <programlisting format="linespecific">
+...
+if (!sht_dec("my_ht", "my_key")) {
+    xlog("L_ERR", "could not decrement my_key\n");
+}
+...
+</programlisting>
+        </example>
+    </section>
+    </section>
 		<section>
 		<title>Exported pseudo-variables</title>
 		<itemizedlist>
@@ -1337,6 +1637,9 @@ if(sht_match_str_value("ha", "eq", "alice")) {
 			<listitem><para>
 				<emphasis>$shtinc(htable=>key)</emphasis>
 			</para></listitem>
+            <listitem><para>
+                <emphasis>$shtdec(htable=>key)</emphasis>
+            </para></listitem>
 			<listitem><para>
 				<emphasis>$shtitkey(iname)</emphasis>
 			</para></listitem>
@@ -1367,7 +1670,7 @@ if(sht_match_str_value("ha", "eq", "alice")) {
                 <itemizedlist>
                         <listitem><para>htable : Name of the hash table to dump</para>
                         </listitem>
-                        <listitem><para>key : Key name of the hash table value to dump</para>
+                        <listitem><para>key : Key name of the hash table value to dump. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
                         </listitem>
                 </itemizedlist>
                 <para>
@@ -1376,10 +1679,13 @@ if(sht_match_str_value("ha", "eq", "alice")) {
 <programlisting  format="linespecific">
 ...
 # Dump $sht(students=>alice)
-kamcmd htable.get students alice
+kamctl rpc htable.get students alice
+
+# Dump $sht(students=>15)
+kamctl rpc htable.get students s:15
 
 # Dump first entry in array key course $sht(students=>course[0])
-kamcmd htable.get students course[0]
+kamctl rpc htable.get students course[0]
 ...
 </programlisting>
 	</section>
@@ -1397,7 +1703,7 @@ kamcmd htable.get students course[0]
                 <itemizedlist>
                         <listitem><para>htable : Name of the hash table to delete</para>
                         </listitem>
-                        <listitem><para>key : Key name of the hash table value to delete</para>
+                        <listitem><para>key : Key name of the hash table value to delete. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
                         </listitem>
                 </itemizedlist>
                 <para>
@@ -1406,10 +1712,13 @@ kamcmd htable.get students course[0]
 <programlisting  format="linespecific">
 ...
 # Delete $sht(students=>alice)
-kamcmd htable.delete students alice
+kamctl rpc htable.delete students alice
+
+# Delete $sht(students=>15)
+kamctl rpc htable.delete students s:15
 
 # Delete first entry in array key course $sht(students=>course[0])
-kamcmd htable.delete students course[0]
+kamctl rpc htable.delete students course[0]
 ...
 </programlisting>
 	</section>
@@ -1427,7 +1736,7 @@ kamcmd htable.delete students course[0]
                 <itemizedlist>
                         <listitem><para>htable : Name of the hash table</para>
                         </listitem>
-                        <listitem><para>key : Key name in the hash table</para>
+                        <listitem><para>key : Key name in the hash table. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
                         </listitem>
                         <listitem><para>Value : String value for the item</para>
                         </listitem>
@@ -1438,10 +1747,13 @@ kamcmd htable.delete students course[0]
 <programlisting  format="linespecific">
 ...
 # Set $sht(test=>x) as string
-kamcmd htable.sets test x abc
+kamctl rpc htable.sets test x abc
+
+# Set $sht(test=>5) as string
+kamctl rpc htable.sets test s:5 abc
 
 # Set firsti entry in array key x $sht(test=>x[0]) as string
-kamcmd htable.sets test x[0] abc
+kamctl rpc htable.sets test x[0] abc
 ...
 </programlisting>
 	</section>
@@ -1459,7 +1771,7 @@ kamcmd htable.sets test x[0] abc
                 <itemizedlist>
                         <listitem><para>htable : Name of the hash table</para>
                         </listitem>
-                        <listitem><para>key : Key name in the hash table</para>
+                        <listitem><para>key : Key name in the hash table. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
                         </listitem>
                         <listitem><para>Value : Integer value for the item</para>
                         </listitem>
@@ -1470,10 +1782,13 @@ kamcmd htable.sets test x[0] abc
 <programlisting  format="linespecific">
 ...
 # Set $sht(test=>x) as integer
-kamcmd htable.seti test x 123
+kamctl rpc htable.seti test x 123
+
+# Set $sht(test=>5) as integer
+kamctl rpc htable.seti test s:5 123
 
 # Set first entry in array key x $sht(test=>x[0]) as integer
-kamcmd htable.seti test x[0] 123
+kamctl rpc htable.seti test x[0] 123
 ...
 </programlisting>
 	</section>
@@ -1491,7 +1806,7 @@ kamcmd htable.seti test x[0] 123
                 <itemizedlist>
                         <listitem><para>htable : name of the hash table</para>
                         </listitem>
-                        <listitem><para>key : key name in the hash table</para>
+                        <listitem><para>key : key name in the hash table. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
                         </listitem>
                         <listitem><para>expire : integer value for the expire (seconds)</para>
                         </listitem>
@@ -1501,8 +1816,79 @@ kamcmd htable.seti test x[0] 123
                 </para>
 <programlisting  format="linespecific">
 ...
-# set  expire for $sht(test=>x) to 120 secs
-kamctl rpc htable.seti test x 120
+# set expire for $sht(test=>x) to 120 secs
+kamctl rpc htable.setex test x 120
+
+# set expire for $sht(test=>10) to 120 secs
+kamctl rpc htable.setex test s:10 120
+...
+</programlisting>
+	</section>
+       <section id="htable.rpc.setxs">
+                <title>
+                <function moreinfo="none">htable.setxs htable key value expire</function>
+                </title>
+                <para>
+					Set the string value and expire for an item in hash table.
+                </para>
+                <para>
+                Name: <emphasis>htable.setxs</emphasis>
+                </para>
+                <para>Parameters:</para>
+                <itemizedlist>
+                        <listitem><para>htable : name of the hash table</para>
+                        </listitem>
+                        <listitem><para>key : key name in the hash table. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
+                        </listitem>
+                        <listitem><para>value : string value for the item</para>
+                        </listitem>
+                        <listitem><para>expire : integer value for the expire (seconds)</para>
+                        </listitem>
+                </itemizedlist>
+                <para>
+                Example:
+                </para>
+<programlisting  format="linespecific">
+...
+# set value to 'abc' and expire for $sht(test=>x) to 120 secs
+kamctl rpc htable.setxs test x abc 120
+
+# set value to 'abc' and expire for $sht(test=>10) to 120 secs
+kamctl rpc htable.setxs test s:10 abc 120
+...
+</programlisting>
+	</section>
+       <section id="htable.rpc.setxi">
+                <title>
+                <function moreinfo="none">htable.setxi htable key value expire</function>
+                </title>
+                <para>
+					Set the integer value and expire for an item in hash table.
+                </para>
+                <para>
+                Name: <emphasis>htable.setxi</emphasis>
+                </para>
+                <para>Parameters:</para>
+                <itemizedlist>
+                        <listitem><para>htable : name of the hash table</para>
+                        </listitem>
+                        <listitem><para>key : key name in the hash table. Note: if key name is an integer value, it should be prefixed with <emphasis>s:</emphasis></para>
+                        </listitem>
+                        <listitem><para>value : integer value for the item</para>
+                        </listitem>
+                        <listitem><para>expire : integer value for the expire (seconds)</para>
+                        </listitem>
+                </itemizedlist>
+                <para>
+                Example:
+                </para>
+<programlisting  format="linespecific">
+...
+# set value to 10 and expire for $sht(test=>x) to 120 secs
+kamctl rpc htable.setxi test x 10 120
+
+# set value to 10 and expire for $sht(test=>5) to 120 secs
+kamctl rpc htable.setxi test s:5 10 120
 ...
 </programlisting>
 	</section>
@@ -1526,7 +1912,7 @@ kamctl rpc htable.seti test x 120
                 </para>
 <programlisting  format="linespecific">
 ...
-kamcmd htable.dump ipban
+kamctl rpc htable.dump ipban
 ...
 </programlisting>
 	</section>
@@ -1550,7 +1936,7 @@ kamcmd htable.dump ipban
                 </para>
 <programlisting  format="linespecific">
 ...
-kamcmd htable.reload ipban
+kamctl rpc htable.reload ipban
 ...
 </programlisting>
 	</section>
@@ -1574,7 +1960,7 @@ kamcmd htable.reload ipban
                 </para>
 <programlisting  format="linespecific">
 ...
-kamcmd htable.store ipban
+kamctl rpc htable.store ipban
 ...
 </programlisting>
 	</section>
@@ -1597,7 +1983,7 @@ kamcmd htable.store ipban
           </para>
 <programlisting  format="linespecific">
 ...
-kamcmd htable.flush ipban
+kamctl rpc htable.flush ipban
 ...
 </programlisting>
 	</section>
@@ -1621,7 +2007,7 @@ kamcmd htable.flush ipban
                 </para>
 <programlisting  format="linespecific">
 ...
-kamcmd htable.listTables
+kamctl rpc htable.listTables
 ...
 </programlisting>
 	</section>
@@ -1647,11 +2033,60 @@ kamcmd htable.listTables
                 </para>
 <programlisting  format="linespecific">
 ...
-kamcmd htable.stats
+kamctl rpc htable.stats
 ...
 </programlisting>
 	</section>
-
+	<section id="htable.rpc.dmqsync">
+          <title>
+                <function moreinfo="none">htable.dmqsync [htable]</function>
+          </title>
+          <para>
+            Perform a DMQ sync action.
+          </para>
+          <para>
+            Name: <emphasis>htable.dmqsync</emphasis>
+          </para>
+          <para>Parameters:</para>
+          <itemizedlist>
+			  <listitem><para>htable: name of the hash table to perform dmq sync for.
+				If not provided, sync is performed for all hash tables that have
+				dmq sync enabled.</para></listitem>
+          </itemizedlist>
+          <para>
+          Example:
+          </para>
+<programlisting  format="linespecific">
+...
+kamctl rpc htable.dmqsync
+kamctl rpc htable.dmqsync ipban
+...
+</programlisting>
+	</section>
+	<section id="htable.rpc.dmqresync">
+          <title>
+                <function moreinfo="none">htable.dmqresync htable</function>
+          </title>
+          <para>
+            Perform a resync action (flush and dmq sync).
+          </para>
+          <para>
+            Name: <emphasis>htable.dmqresync</emphasis>
+          </para>
+          <para>Parameters:</para>
+          <itemizedlist>
+			  <listitem><para>htable: name of the hash table to perform resync for.
+				</para></listitem>
+          </itemizedlist>
+          <para>
+          Example:
+          </para>
+<programlisting  format="linespecific">
+...
+kamctl rpc htable.dmqresync ipban
+...
+</programlisting>
+	</section>
 	</section><!-- RPC commands -->
 
 	<section>
@@ -1706,7 +2141,25 @@ event_route[htable:expired:mytable] {
 ...
 </programlisting>
 	</section>
+
+	<section>
+		<title>
+		<function moreinfo="none">htable:reloaded:&lt;table&gt;</function>
+		</title>
+		<para>
+			When defined, the module calls event_route[htable:reloaded:&lt;table&gt;]
+			when a hash table was reloaded.
+		</para>
+<programlisting  format="linespecific">
+...
+
+event_route[htable:reloaded:mytable] {
+    xlog("mytable was reloaded\n");
+}
+...
+</programlisting>
+	</section>
+
 	</section>
 
 </chapter>
-

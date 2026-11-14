@@ -114,8 +114,145 @@
 				<programlisting format="linespecific">
 ...
 modparam("nats", "nats_url", "nats://127.0.0.1:4222")
-modparam("nats", "nats_url", "nats://user1:pass1127.0.1.2:4222") // with auth
+modparam("nats", "nats_url", "nats://user1:pass1@127.0.1.2:4222") // with auth
 modparam("nats", "nats_url", "nats://127.1.2.3:4222")
+...
+</programlisting>
+			</example>
+		</section>
+		<section>
+			<title>
+				<varname>tls</varname>
+				(int)
+			</title>
+			<para>
+				Enable TLS for all configured NATS servers.
+			</para>
+			<para>
+				When enabled, <varname>tls_ca_file</varname> must also be set. If
+				client authentication is required, <varname>tls_cert_file</varname>
+				and <varname>tls_key_file</varname> must be set together.
+			</para>
+			<para>
+				<emphasis>Default value is <quote>0</quote>.</emphasis>
+			</para>
+			<example>
+				<title>
+					Set
+					<varname>tls</varname>
+					parameter
+				</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "tls", 1)
+...
+</programlisting>
+			</example>
+		</section>
+		<section>
+			<title>
+				<varname>tls_ca_file</varname>
+				(str)
+			</title>
+			<para>
+				Path to the CA certificate bundle used to validate the NATS server
+				certificate.
+			</para>
+			<para>
+				This parameter is required when <varname>tls</varname> is enabled.
+			</para>
+			<para>
+				<emphasis>Default value is not set.</emphasis>
+			</para>
+			<example>
+				<title>
+					Set
+					<varname>tls_ca_file</varname>
+					parameter
+				</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "tls_ca_file", "/etc/kamailio/nats/ca.crt")
+...
+</programlisting>
+			</example>
+		</section>
+		<section>
+			<title>
+				<varname>tls_cert_file</varname>
+				(str)
+			</title>
+			<para>
+				Path to the client certificate presented to the NATS server for mTLS.
+			</para>
+			<para>
+				If set, <varname>tls_key_file</varname> must also be set.
+			</para>
+			<para>
+				<emphasis>Default value is not set.</emphasis>
+			</para>
+			<example>
+				<title>
+					Set
+					<varname>tls_cert_file</varname>
+					parameter
+				</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "tls_cert_file", "/etc/kamailio/nats/client.crt")
+...
+</programlisting>
+			</example>
+		</section>
+		<section>
+			<title>
+				<varname>tls_key_file</varname>
+				(str)
+			</title>
+			<para>
+				Path to the client private key used with
+				<varname>tls_cert_file</varname>.
+			</para>
+			<para>
+				If set, <varname>tls_cert_file</varname> must also be set.
+			</para>
+			<para>
+				<emphasis>Default value is not set.</emphasis>
+			</para>
+			<example>
+				<title>
+					Set
+					<varname>tls_key_file</varname>
+					parameter
+				</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "tls_key_file", "/etc/kamailio/nats/client.key")
+...
+</programlisting>
+			</example>
+		</section>
+		<section>
+			<title>
+				<varname>tls_expected_hostname</varname>
+				(str)
+			</title>
+			<para>
+				Expected hostname in the NATS server certificate. Use it when the
+				server certificate hostname should be pinned explicitly.
+			</para>
+			<para>
+				<emphasis>Default value is not set.</emphasis>
+			</para>
+			<example>
+				<title>
+					Set
+					<varname>tls_expected_hostname</varname>
+					parameter
+				</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "tls_expected_hostname", "nats.internal")
 ...
 </programlisting>
 			</example>
@@ -143,6 +280,20 @@ modparam("nats", "nats_url", "nats://127.1.2.3:4222")
 				<programlisting format="linespecific">
 ...
 modparam("nats", "num_publish_workers", 4)
+...
+</programlisting>
+			</example>
+			<example>
+				<title>TLS configuration example</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "nats_url", "nats://nats-1:4222")
+modparam("nats", "nats_url", "nats://nats-2:4222")
+modparam("nats", "tls", 1)
+modparam("nats", "tls_ca_file", "/etc/kamailio/nats/ca.crt")
+modparam("nats", "tls_cert_file", "/etc/kamailio/nats/client.crt")
+modparam("nats", "tls_key_file", "/etc/kamailio/nats/client.key")
+modparam("nats", "tls_expected_hostname", "nats.internal")
 ...
 </programlisting>
 			</example>
@@ -177,15 +328,46 @@ modparam("nats", "subject_queue_group", "MyQueue2:2021")
 				</programlisting>
 			</example>
 		</section>
+		<section>
+			<title>
+				<varname>event_callback</varname>
+				(str)
+			</title>
+			<para>
+				Name of the KEMI function to be executed instead of the event route.
+			</para>
+			<para>
+				<emphasis>Default value is not set.</emphasis>
+			</para>
+			<example>
+				<title>
+					Set
+					<varname>event_callback</varname>
+					parameter
+				</title>
+				<programlisting format="linespecific">
+...
+modparam("nats", "event_callback", "ksr_nats_event")
+
+-- event callback function implemented in Lua
+function ksr_nats_event(evname)
+	KSR.info("===== nats module received event: " .. evname ..
+		", data:" .. KSR.pv.gete('$natsData') .. "\n");
+	return 1;
+end
+...
+				</programlisting>
+			</example>
+		</section>
 	</section>
 	<section>
 		<title>Functions</title>
 		<section id="nats.f.nats_publish">
 			<title>
-				<function moreinfo="none">nats_publish(subject, payload)</function>
+				<function moreinfo="none">nats_publish(subject, payload, reply)</function>
 			</title>
 			<para>
-				Publishes the payload to subject.
+				Publishes the payload to subject, with an optional reply subject.
 			</para>
 			<example>
 				<title>
@@ -196,6 +378,10 @@ modparam("nats", "subject_queue_group", "MyQueue2:2021")
 ...
 $var(my_info) = "$ci=" + $ci + " $fU=" + $fU;
 nats_publish("mysubject", "$var(my_info)"); # publish $var(my_info) to "mysubject"
+
+# publish $var(my_info) to "mysubject" with a reply.topic topic, so a response
+# can be published back from the other side, like the NATS Request-Reply mode.
+nats_publish("mysubject", "$var(my_info)", "reply.topic");
 ...
 				</programlisting>
 			</example>

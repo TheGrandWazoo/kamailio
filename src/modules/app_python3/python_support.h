@@ -1,7 +1,9 @@
-/* 
+/*
  * Copyright (C) 2009 Sippy Software, Inc., http://www.sippysoft.com
  *
  * This file is part of Kamailio, a free SIP server.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,12 +22,14 @@
 */
 
 #ifndef _PYTHON_SUPPORT_H
-#define  _PYTHON_SUPPORT_H
+#define _PYTHON_SUPPORT_H
 
 #include <Python.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 extern PyObject *format_exc_obj;
+extern PyThreadState *_save;
 
 void python_handle_exception(const char *, ...);
 
@@ -37,5 +41,22 @@ const char *get_instance_class_name(PyObject *);
 char *get_class_name(PyObject *);
 char *get_instance_class_name(PyObject *);
 #endif
+
+#define ACQUIRE_GIL_REENTRANT            \
+	do {                                 \
+		if(!PyGILState_Check()) {        \
+			PyEval_RestoreThread(_save); \
+			(acquired_var) = true;       \
+		} else {                         \
+			(acquired_var) = false;      \
+		}                                \
+	} while(0)
+
+#define RELEASE_GIL_REENTRANT              \
+	do {                                   \
+		if(acquired_var) {                 \
+			(_save) = PyEval_SaveThread(); \
+		}                                  \
+	} while(0)
 
 #endif

@@ -1,4 +1,4 @@
-	<!-- uacreg provisionning -->
+	<!-- uacreg provisioning -->
 	<mod><mod_name>uacreg</mod_name>
 		<cmd><cmd_name>show</cmd_name>
 			<db_table_id>uacreg</db_table_id>
@@ -19,6 +19,7 @@
 				<col><field>flags</field></col>
 				<col><field>reg_delay</field></col>
 				<col><field>contact_addr</field></col>
+				<col><field>contact_user</field></col>
 				<col><field>socket</field></col>
 			</query_cols>
 		</cmd>
@@ -40,6 +41,7 @@
 				<col><field>flags</field></col>
 				<col><field>reg_delay</field></col>
 				<col><field>contact_addr</field></col>
+				<col><field>contact_user</field></col>
 				<col><field>socket</field></col>
 			</query_cols>
 		</cmd>
@@ -64,6 +66,7 @@
 				<col><field>flags</field></col>
 				<col><field>reg_delay</field></col>
 				<col><field>contact_addr</field></col>
+				<col><field>contact_user</field></col>
 				<col><field>socket</field></col>
 			</query_cols>
 		</cmd>

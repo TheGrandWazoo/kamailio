@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -146,14 +148,11 @@ int xml_publ_handl(struct sip_msg *msg)
 	if(get_content_length(msg) == 0)
 		return 1;
 
-	body.s = get_body(msg);
-	if(body.s == NULL) {
+	if(get_body_str(msg, &body) < 0) {
 		LM_ERR("cannot extract body from msg\n");
 		goto error;
 	}
-	/* content-length (if present) must be already parsed */
 
-	body.len = get_content_length(msg);
 	doc = xmlParseMemory(body.s, body.len);
 	if(doc == NULL) {
 		LM_ERR("bad body format\n");
@@ -164,12 +163,10 @@ int xml_publ_handl(struct sip_msg *msg)
 	}
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
-	xmlMemoryDump();
 	return 1;
 
 error:
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
-	xmlMemoryDump();
 	return -1;
 }

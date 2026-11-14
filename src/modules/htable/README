@@ -19,7 +19,13 @@ Ovidiu Sas
 
    <osas@voipembedded.com>
 
+Tyler Moore
+
+   <tmoore@dopensource.com>
+
    Copyright © 2008-2011 http://www.asipto.com
+
+   Copyright © 2023-2025 Tyler Moore, dOpenSource
      __________________________________________________________________
 
    Table of Contents
@@ -51,6 +57,7 @@ Ovidiu Sas
               3.14. timer_procs (integer)
               3.15. event_callback (str)
               3.16. event_callback_mode (int)
+              3.17. dmq_peer_id (string)
 
         4. Functions
 
@@ -60,20 +67,25 @@ Ovidiu Sas
               4.4. sht_rm_value_re(htable=>regexp)
               4.5. sht_rm_name(htable, op, val)
               4.6. sht_rm_value(htable, op, val)
-              4.7. sht_reset(htable)
-              4.8. sht_lock(htable=>key)
-              4.9. sht_unlock(htable=>key)
-              4.10. sht_iterator_start(iname, hname)
-              4.11. sht_iterator_end(iname)
-              4.12. sht_iterator_next(iname)
-              4.13. sht_iterator_rm(iname)
-              4.14. sht_iterator_sets(iname, sval)
-              4.15. sht_iterator_seti(iname, ival)
-              4.16. sht_iterator_setex(iname, exval)
-              4.17. sht_match_name(htable, op, mval)
-              4.18. sht_has_name(htable, op, mval)
-              4.19. sht_match_str_value(htable, op, mval)
-              4.20. sht_has_str_value(htable, op, mval)
+              4.7. sht_setxs(htname, itname, itval, exval)
+              4.8. sht_setxi(htname, itname, itval, exval)
+              4.9. sht_reset(htable)
+              4.10. sht_lock(htable=>key)
+              4.11. sht_unlock(htable=>key)
+              4.12. sht_iterator_start(iname, hname)
+              4.13. sht_iterator_end(iname)
+              4.14. sht_iterator_next(iname)
+              4.15. sht_iterator_rm(iname)
+              4.16. sht_iterator_sets(iname, sval)
+              4.17. sht_iterator_seti(iname, ival)
+              4.18. sht_iterator_setex(iname, exval)
+              4.19. sht_match_name(htable, op, mval)
+              4.20. sht_has_name(htable, op, mval)
+              4.21. sht_match_str_value(htable, op, mval)
+              4.22. sht_has_str_value(htable, op, mval)
+              4.23. sht_is_null(htname, itname)
+              4.24. sht_inc(htname, itname)
+              4.25. sht_dec(htname, itname)
 
         5. Exported pseudo-variables
         6. RPC Commands
@@ -83,17 +95,22 @@ Ovidiu Sas
               6.3. htable.sets htable key value
               6.4. htable.seti htable key value
               6.5. htable.setex htable key expire
-              6.6. htable.dump htable
-              6.7. htable.reload htable
-              6.8. htable.store htable
-              6.9. htable.flush htable
-              6.10. htable.listTables
-              6.11. htable.stats
+              6.6. htable.setxs htable key value expire
+              6.7. htable.setxi htable key value expire
+              6.8. htable.dump htable
+              6.9. htable.reload htable
+              6.10. htable.store htable
+              6.11. htable.flush htable
+              6.12. htable.listTables
+              6.13. htable.stats
+              6.14. htable.dmqsync [htable]
+              6.15. htable.dmqresync htable
 
         7. Event routes
 
               7.1. htable:mod-init
               7.2. htable:expired:<table>
+              7.3. htable:reloaded:<table>
 
    List of Examples
 
@@ -116,24 +133,30 @@ Ovidiu Sas
    1.17. Set timer_procs parameter
    1.18. Set event_callback parameter
    1.19. Set event_callback_mode parameter
-   1.20. sht_print usage
-   1.21. sht_rm usage
-   1.22. sht_rm_name_re usage
-   1.23. sht_rm_value_re usage
-   1.24. sht_rm_name usage
-   1.25. sht_rm_value usage
-   1.26. sht_reset usage
-   1.27. sht_lock usage
-   1.28. sht_unlock usage
-   1.29. sht_iterator_start usage
-   1.30. sht_iterator_end usage
-   1.31. sht_iterator_next usage
-   1.32. sht_iterator_rm usage
-   1.33. sht_iterator_sets usage
-   1.34. sht_iterator_seti usage
-   1.35. sht_iterator_setex usage
-   1.36. sht_match_name usage
-   1.37. sht_match_name usage
+   1.20. Set dmq_peer_id parameter
+   1.21. sht_print usage
+   1.22. sht_rm usage
+   1.23. sht_rm_name_re usage
+   1.24. sht_rm_value_re usage
+   1.25. sht_rm_name usage
+   1.26. sht_rm_value usage
+   1.27. sht_setxs usage
+   1.28. sht_setxi usage
+   1.29. sht_reset usage
+   1.30. sht_lock usage
+   1.31. sht_unlock usage
+   1.32. sht_iterator_start usage
+   1.33. sht_iterator_end usage
+   1.34. sht_iterator_next usage
+   1.35. sht_iterator_rm usage
+   1.36. sht_iterator_sets usage
+   1.37. sht_iterator_seti usage
+   1.38. sht_iterator_setex usage
+   1.39. sht_match_name usage
+   1.40. sht_match_name usage
+   1.41. sht_is_null usage
+   1.42. sht_inc usage
+   1.43. sht_dec usage
 
 Chapter 1. Admin Guide
 
@@ -164,6 +187,7 @@ Chapter 1. Admin Guide
         3.14. timer_procs (integer)
         3.15. event_callback (str)
         3.16. event_callback_mode (int)
+        3.17. dmq_peer_id (string)
 
    4. Functions
 
@@ -173,20 +197,25 @@ Chapter 1. Admin Guide
         4.4. sht_rm_value_re(htable=>regexp)
         4.5. sht_rm_name(htable, op, val)
         4.6. sht_rm_value(htable, op, val)
-        4.7. sht_reset(htable)
-        4.8. sht_lock(htable=>key)
-        4.9. sht_unlock(htable=>key)
-        4.10. sht_iterator_start(iname, hname)
-        4.11. sht_iterator_end(iname)
-        4.12. sht_iterator_next(iname)
-        4.13. sht_iterator_rm(iname)
-        4.14. sht_iterator_sets(iname, sval)
-        4.15. sht_iterator_seti(iname, ival)
-        4.16. sht_iterator_setex(iname, exval)
-        4.17. sht_match_name(htable, op, mval)
-        4.18. sht_has_name(htable, op, mval)
-        4.19. sht_match_str_value(htable, op, mval)
-        4.20. sht_has_str_value(htable, op, mval)
+        4.7. sht_setxs(htname, itname, itval, exval)
+        4.8. sht_setxi(htname, itname, itval, exval)
+        4.9. sht_reset(htable)
+        4.10. sht_lock(htable=>key)
+        4.11. sht_unlock(htable=>key)
+        4.12. sht_iterator_start(iname, hname)
+        4.13. sht_iterator_end(iname)
+        4.14. sht_iterator_next(iname)
+        4.15. sht_iterator_rm(iname)
+        4.16. sht_iterator_sets(iname, sval)
+        4.17. sht_iterator_seti(iname, ival)
+        4.18. sht_iterator_setex(iname, exval)
+        4.19. sht_match_name(htable, op, mval)
+        4.20. sht_has_name(htable, op, mval)
+        4.21. sht_match_str_value(htable, op, mval)
+        4.22. sht_has_str_value(htable, op, mval)
+        4.23. sht_is_null(htname, itname)
+        4.24. sht_inc(htname, itname)
+        4.25. sht_dec(htname, itname)
 
    5. Exported pseudo-variables
    6. RPC Commands
@@ -196,17 +225,22 @@ Chapter 1. Admin Guide
         6.3. htable.sets htable key value
         6.4. htable.seti htable key value
         6.5. htable.setex htable key expire
-        6.6. htable.dump htable
-        6.7. htable.reload htable
-        6.8. htable.store htable
-        6.9. htable.flush htable
-        6.10. htable.listTables
-        6.11. htable.stats
+        6.6. htable.setxs htable key value expire
+        6.7. htable.setxi htable key value expire
+        6.8. htable.dump htable
+        6.9. htable.reload htable
+        6.10. htable.store htable
+        6.11. htable.flush htable
+        6.12. htable.listTables
+        6.13. htable.stats
+        6.14. htable.dmqsync [htable]
+        6.15. htable.dmqresync htable
 
    7. Event routes
 
         7.1. htable:mod-init
         7.2. htable:expired:<table>
+        7.3. htable:reloaded:<table>
 
 1. Overview
 
@@ -314,7 +348,7 @@ $ cat /usr/local/etc/kamailio/dbtext/htable
 3:key:1:0:value1:0
 
 # The array key will be loaded in memory in the following format:
-$ kamcmd htable.dump htable
+$ kamctl rpc htable.dump htable
 {
         entry: 35
         size: 1
@@ -357,10 +391,10 @@ $ kamcmd htable.dump htable
 }
 
 # Now let's delete a particular entry in the array: key[0].
-$ kamcmd htable.delete htable key[0]
+$ kamctl rpc htable.delete htable key[0]
 
 # The array key will look like this after a key was deleted:
-$ kamcmd htable.dump htable
+$ kamctl rpc htable.dump htable
 {
         entry: 50
         size: 1
@@ -447,12 +481,14 @@ $ kamcmd htable.dump htable
    3.14. timer_procs (integer)
    3.15. event_callback (str)
    3.16. event_callback_mode (int)
+   3.17. dmq_peer_id (string)
 
 3.1. htable (str)
 
    The definition of a hash table. The value of the parameter may have the
    following format:
-     * "htname=>size=_number_;autoexpire=_number_;dbtable=_string_"
+     * "htname=>size=_number_;autoexpire=_number_;dbtable=_string_;fpath=_
+       string_"
 
    The parameter can be set multiple times to get more hash tables in same
    configuration file.
@@ -470,10 +506,39 @@ $ kamcmd htable.dump htable
        can be stored in a hash table, as long as there is enough free
        shared memory, new items can be added.
      * autoexpire -time in seconds to delete an item from a hash table if
-       no update was done to it. If is missing or set to 0, the items
+       no update was done to it. If it is missing or set to 0, the items
        won't expire.
+     * reloadat - time in seconds to reload a hash table. For each new
+       seconds interval, the hash table will be reloaded. You can catch
+       the reload on the event_route: htable:reloaded:<htable>.
      * dbtable - name of database to be loaded at startup in hash table.
-       If empty or missing, no data will be loaded.
+       If empty or missing, no data will be loaded. It cannot be used
+       together with fpath.
+     * fpath - path of a file to be loaded into the hash table at startup.
+       It cannot be used together with dbtable. Each non-empty line must
+       have four fields: “key|value-type|value|expire”, where the
+       delimiter can be changed with fdelim. The value type is 0 for a
+       string and 1 for a signed integer. The expire field is an absolute
+       Unix timestamp, or 0 for an entry that does not expire. Entries
+       whose timestamp is already in the past are not loaded. A missing
+       file or malformed line causes module initialization to fail.
+     * ftype - encoding used by a file-backed hash table. The default
+       value 0 stores keys and string values in clear text. Such values
+       cannot contain the configured delimiter, carriage return, or line
+       feed. Value 1 stores keys and string values as unpadded Base64URL;
+       padded Base64URL is also accepted when loading. Integer values are
+       always stored as decimal text.
+     * fdelim - single character used to separate fields in a file-backed
+       hash table. The default value is “|”. With ftype set to 1, the
+       delimiter cannot be part of the Base64URL alphabet or the padding
+       character “=”.
+       For example, the clear-text form can contain:
+customer42|0|active|1790000000
+counter|1|-23|0
+       With ftype=1, the same records are stored with unpadded Base64URL
+       keys and string values:
+Y3VzdG9tZXI0Mg|0|YWN0aXZl|1790000000
+Y291bnRlcg|1|-23|0
      * cols - the column names of the database table. They must be
        enclosed in quotes in order to form a valid SIP parameter value and
        be separated by comma. The first column corresponds to key_name.
@@ -485,10 +550,10 @@ $ kamcmd htable.dump htable
        transformation {s.select,...} can be used in configuration file to
        extract a specific column value). When cols attribute is present,
        writing back to database table is disabled.
-     * dbmode - if set to 1, the content of hash table is written to
-       database table when the SIP server is stopped (i.e., ensure
-       persistency over restarts). Default value is 0 (no write back to db
-       table).
+     * dbmode - if set to 1, the content of the hash table is written to
+       its configured database table or file path when the SIP server is
+       stopped (i.e., ensure persistency over restarts). File write-back
+       uses an atomic replacement. Default value is 0 (no write-back).
      * initval - the integer value to be returned instead of $null when a
        requested key is not set.
      * updateexpire - if set to 1 (default), the time until expiration of
@@ -500,6 +565,43 @@ $ kamcmd htable.dump htable
        nodes (htable peers). Please note, module parameter “enable_dmq”
        must also be set in order for this to apply (see below). Default is
        0 (no replication).
+       When replication is enabled for a htable, each cell carries a
+       'last_modified' timestamp with millisecond precision, updated on
+       every value change. This is included in SET_CELL and SYNC DMQ
+       payloads. A receiving peer applies an incoming value only if its
+       'last_modified' timestamp is newer than the local cell's one
+       (Last-Write-Wins); otherwise it keeps the local value. All other
+       DMQ actions carry no 'last_modified' timestamp and remain
+       last-arrived-wins.
+     * coldelim - the character delimeter to use when packing the htable.
+       When set, this parameter changes the column delimeter between
+       columns in a multiple column hash table. This can be useful when
+       loading JSON data types into a hash table as they conflict with the
+       default “,” delimeter, allowing these values to be parsed in the
+       routing config. See the example below on parsing a JSON array from
+       an htable with “;” as the column delimeter.
+...
+modparam("htable", "htable", "customer=>size=8;dbtable=customer;cols='dids,descr
+iption';coldelim=';'")
+...
+$avp(customer) = $sht(customer=>1);
+$var(customer_dids) = $(avp(customer){s.select,0,;});
+$var(customer_desc) = $(avp(customer){s.select,1,;});
+...
+     * colnull - the character to use when packing a NULL value into the
+       htable from the database. This parameter can be set to the empty
+       string or a single character. This can be used to simplify checking
+       a single column in a row for emptiness, in the routing config. The
+       example below shows how one would do that.
+...
+modparam("htable", "htable", "customer=>size=8;dbtable=customer;cols='name,descr
+iption';colnull=''")
+...
+$avp(customer) = $sht(customer=>1);
+$var(customer_name) = $(avp(customer){s.select,0,;});
+if (!strempty($var(customer_name))) {
+...
+}
 
    Default value is NULL.
 
@@ -509,6 +611,8 @@ modparam("htable", "htable", "a=>size=4;autoexpire=7200;dbtable=htable_a;")
 modparam("htable", "htable", "b=>size=5;")
 modparam("htable", "htable", "c=>size=4;autoexpire=7200;initval=1;dmqreplicate=1
 ;")
+modparam("htable", "htable", "d=>size=4;autoexpire=7200;fpath=/var/lib/kamailio/
+d.ht;ftype=1;dbmode=1;")
 ...
 
 3.2. db_url (str)
@@ -718,6 +822,19 @@ end
 modparam("htable", "event_callback_mode", 1)
 ...
 
+3.17. dmq_peer_id (string)
+
+   The DMQ peer identifier for htable replication. This allows customizing
+   the peer name used in DMQ communication, which can be useful to avoid
+   compatibility conflicts, and for a better partitioning.
+
+   Default value is “htable”.
+
+   Example 1.20. Set dmq_peer_id parameter
+...
+modparam("htable", "dmq_peer_id", "htable_6.1.1")
+...
+
 4. Functions
 
    4.1. sht_print()
@@ -726,20 +843,25 @@ modparam("htable", "event_callback_mode", 1)
    4.4. sht_rm_value_re(htable=>regexp)
    4.5. sht_rm_name(htable, op, val)
    4.6. sht_rm_value(htable, op, val)
-   4.7. sht_reset(htable)
-   4.8. sht_lock(htable=>key)
-   4.9. sht_unlock(htable=>key)
-   4.10. sht_iterator_start(iname, hname)
-   4.11. sht_iterator_end(iname)
-   4.12. sht_iterator_next(iname)
-   4.13. sht_iterator_rm(iname)
-   4.14. sht_iterator_sets(iname, sval)
-   4.15. sht_iterator_seti(iname, ival)
-   4.16. sht_iterator_setex(iname, exval)
-   4.17. sht_match_name(htable, op, mval)
-   4.18. sht_has_name(htable, op, mval)
-   4.19. sht_match_str_value(htable, op, mval)
-   4.20. sht_has_str_value(htable, op, mval)
+   4.7. sht_setxs(htname, itname, itval, exval)
+   4.8. sht_setxi(htname, itname, itval, exval)
+   4.9. sht_reset(htable)
+   4.10. sht_lock(htable=>key)
+   4.11. sht_unlock(htable=>key)
+   4.12. sht_iterator_start(iname, hname)
+   4.13. sht_iterator_end(iname)
+   4.14. sht_iterator_next(iname)
+   4.15. sht_iterator_rm(iname)
+   4.16. sht_iterator_sets(iname, sval)
+   4.17. sht_iterator_seti(iname, ival)
+   4.18. sht_iterator_setex(iname, exval)
+   4.19. sht_match_name(htable, op, mval)
+   4.20. sht_has_name(htable, op, mval)
+   4.21. sht_match_str_value(htable, op, mval)
+   4.22. sht_has_str_value(htable, op, mval)
+   4.23. sht_is_null(htname, itname)
+   4.24. sht_inc(htname, itname)
+   4.25. sht_dec(htname, itname)
 
 4.1.  sht_print()
 
@@ -749,7 +871,7 @@ modparam("htable", "event_callback_mode", 1)
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE,
    ONREPLY_ROUTE, BRANCH_ROUTE.
 
-   Example 1.20. sht_print usage
+   Example 1.21. sht_print usage
 ...
 sht_print();
 ...
@@ -757,11 +879,11 @@ sht_print();
 4.2.  sht_rm(htname, itname)
 
    Delete the item with the name 'itname' from hash table 'htname'. This
-   API function equivaluent to '$sht(htname=>itname) = $null'.
+   API function is equivalent to '$sht(htname=>itname) = $null'.
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.21. sht_rm usage
+   Example 1.22. sht_rm usage
 ...
 sht_rm("ha", "test"");
 ...
@@ -774,7 +896,7 @@ sht_rm("ha", "test"");
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE,
    ONREPLY_ROUTE, BRANCH_ROUTE.
 
-   Example 1.22. sht_rm_name_re usage
+   Example 1.23. sht_rm_name_re usage
 ...
 sht_rm_name_re("ha=>.*");
 ...
@@ -787,7 +909,7 @@ sht_rm_name_re("ha=>.*");
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE,
    ONREPLY_ROUTE, BRANCH_ROUTE.
 
-   Example 1.23. sht_rm_value_re usage
+   Example 1.24. sht_rm_value_re usage
 ...
 sht_rm_value_re("ha=>.*");
 ...
@@ -800,12 +922,14 @@ sht_rm_value_re("ha=>.*");
    The op parameter can be:
      * re - match the val parameter as regular expression.
      * sw - match the val parameter as 'starts with'.
+     * ew - match the val parameter as 'ends with'.
+     * in - match the val parameter as 'includes'.
 
    All parameters can be static strings or contain variables.
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.24. sht_rm_name usage
+   Example 1.25. sht_rm_name usage
 ...
 sht_rm_name("ha", "re", ".*");
 ...
@@ -818,29 +942,59 @@ sht_rm_name("ha", "re", ".*");
    The op parameter can be:
      * re - match the val parameter as regular expression.
      * sw - match the val parameter as 'starts with'.
+     * ew - match the val parameter as 'ends with'.
+     * in - match the val parameter as 'includes'.
 
    All parameters can be static strings or contain variables.
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.25. sht_rm_value usage
+   Example 1.26. sht_rm_value usage
 ...
 sht_rm_value("ha", "re", ".*");
 ...
 
-4.7.  sht_reset(htable)
+4.7.  sht_setxs(htname, itname, itval, exval)
+
+   Set the item with the name 'itname' from hash table 'htname' to string
+   value 'itval' and expire property to 'exval'.
+
+   The parameters can be with variables.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.27. sht_setxs usage
+...
+sht_setxs("ha", "test", "abc", "10");
+...
+
+4.8.  sht_setxi(htname, itname, itval, exval)
+
+   Set the item with the name 'itname' from hash table 'htname' to integer
+   value 'itval' and expire property to 'exval'.
+
+   The parameters can be with variables.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.28. sht_setxi usage
+...
+sht_setxs("ha", "test", "100", "10");
+...
+
+4.9.  sht_reset(htable)
 
    Delete all entries in the htable. The name of the hash table can be a
    dynamic string with variables.
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.26. sht_reset usage
+   Example 1.29. sht_reset usage
 ...
 sht_reset("ha$var(x)");
 ...
 
-4.8.  sht_lock(htable=>key)
+4.10.  sht_lock(htable=>key)
 
    Lock the slot in htable corresponding to the key item. Note that the
    locking is re-entrant for the process, therefore the lock and unlock
@@ -848,12 +1002,12 @@ sht_reset("ha$var(x)");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.27. sht_lock usage
+   Example 1.30. sht_lock usage
 ...
 sht_lock("ha=>test");
 ...
 
-4.9.  sht_unlock(htable=>key)
+4.11.  sht_unlock(htable=>key)
 
    Unlock the slot in htable corresponding to the key item. Note that the
    locking is re-entrant for the process, therefore the lock and unlock
@@ -861,14 +1015,14 @@ sht_lock("ha=>test");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.28. sht_unlock usage
+   Example 1.31. sht_unlock usage
 ...
 sht_lock("ha=>test");
 $sht(ha=>test) = $sht(ha=>test) + 10;
 sht_unlock("ha=>test");
 ...
 
-4.10.  sht_iterator_start(iname, hname)
+4.12.  sht_iterator_start(iname, hname)
 
    Start an iterator for hash table named by the value of parameter hname.
    The parameter iname is used to identify the iterator. There can be up
@@ -883,12 +1037,12 @@ sht_unlock("ha=>test");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.29. sht_iterator_start usage
+   Example 1.32. sht_iterator_start usage
 ...
 sht_iterator_start("i1", "h1");
 ...
 
-4.11.  sht_iterator_end(iname)
+4.13.  sht_iterator_end(iname)
 
    Close the iterator identified by iname parameter and release the hash
    table slot acquired by the iterator. The iname value must be the same
@@ -898,12 +1052,12 @@ sht_iterator_start("i1", "h1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.30. sht_iterator_end usage
+   Example 1.33. sht_iterator_end usage
 ...
 sht_iterator_end("i1");
 ...
 
-4.12.  sht_iterator_next(iname)
+4.14.  sht_iterator_next(iname)
 
    Move the iterator to the next item in hash table. It must be called
    also after sht_iterator_start() to get the first item in the hash
@@ -920,7 +1074,7 @@ sht_iterator_end("i1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.31. sht_iterator_next usage
+   Example 1.34. sht_iterator_next usage
 ...
     sht_iterator_start("i1", "h1");
     while(sht_iterator_next("i1")) {
@@ -929,7 +1083,7 @@ sht_iterator_end("i1");
     sht_iterator_end("i1");
 ...
 
-4.13.  sht_iterator_rm(iname)
+4.15.  sht_iterator_rm(iname)
 
    Remove the current item in the iterator and move the iterator to the
    next one.
@@ -943,7 +1097,7 @@ sht_iterator_end("i1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.32. sht_iterator_rm usage
+   Example 1.35. sht_iterator_rm usage
 ...
     sht_iterator_start("i1", "h1");
     while(sht_iterator_next("i1")) {
@@ -954,7 +1108,7 @@ sht_iterator_end("i1");
     sht_iterator_end("i1");
 ...
 
-4.14.  sht_iterator_sets(iname, sval)
+4.16.  sht_iterator_sets(iname, sval)
 
    Set the value of the current item to the string in the sval.
 
@@ -962,7 +1116,7 @@ sht_iterator_end("i1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.33. sht_iterator_sets usage
+   Example 1.36. sht_iterator_sets usage
 ...
     sht_iterator_start("i1", "h1");
     sht_iterator_next("i1");
@@ -970,7 +1124,7 @@ sht_iterator_end("i1");
     sht_iterator_end("i1");
 ...
 
-4.15.  sht_iterator_seti(iname, ival)
+4.17.  sht_iterator_seti(iname, ival)
 
    Set the value of the current item to the integer in the ival.
 
@@ -978,7 +1132,7 @@ sht_iterator_end("i1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.34. sht_iterator_seti usage
+   Example 1.37. sht_iterator_seti usage
 ...
     sht_iterator_start("i1", "h1");
     sht_iterator_next("i1");
@@ -986,7 +1140,7 @@ sht_iterator_end("i1");
     sht_iterator_end("i1");
 ...
 
-4.16.  sht_iterator_setex(iname, exval)
+4.18.  sht_iterator_setex(iname, exval)
 
    Set the expire of the current item to the integer in the exval.
 
@@ -994,7 +1148,7 @@ sht_iterator_end("i1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.35. sht_iterator_setex usage
+   Example 1.38. sht_iterator_setex usage
 ...
     sht_iterator_start("i1", "h1");
     sht_iterator_next("i1");
@@ -1002,7 +1156,7 @@ sht_iterator_end("i1");
     sht_iterator_end("i1");
 ...
 
-4.17.  sht_match_name(htable, op, mval)
+4.19.  sht_match_name(htable, op, mval)
 
    Return greater than 0 (true) if the htable has an item that matches the
    name against the mval parameter.
@@ -1017,18 +1171,18 @@ sht_iterator_end("i1");
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.36. sht_match_name usage
+   Example 1.39. sht_match_name usage
 ...
 if(sht_match_name("ha", "eq", "alice")) {
   ...
 }
 ...
 
-4.18.  sht_has_name(htable, op, mval)
+4.20.  sht_has_name(htable, op, mval)
 
    Alias for sht_match_name().
 
-4.19.  sht_match_str_value(htable, op, mval)
+4.21.  sht_match_str_value(htable, op, mval)
 
    Return greater than 0 (true) if the htable has an item that matches the
    string value against the mval parameter.
@@ -1043,16 +1197,78 @@ if(sht_match_name("ha", "eq", "alice")) {
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.37. sht_match_name usage
+   Example 1.40. sht_match_name usage
 ...
 if(sht_match_str_value("ha", "eq", "alice")) {
   ...
 }
 ...
 
-4.20.  sht_has_str_value(htable, op, mval)
+4.22.  sht_has_str_value(htable, op, mval)
 
    Alias for sht_match_str_value().
+
+4.23.  sht_is_null(htname, itname)
+
+   Check if the item with the name 'itname' from hash table 'htname'
+   exists. This API function is equivalent to '($sht(htname=>itname) ==
+   $null)'.
+
+   This function returns:
+     * 3 - if parameters could not be parsed
+     * 2 - if hash table is null
+     * 1 - if the value is null
+     * -1 - if hash table default is non null
+     * -2 - if the value is not null
+
+   All parameters can be static strings or contain variables.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.41. sht_is_null usage
+...
+if (sht_is_null("my_ht", "my_key")) {
+    xlog("L_ERR", "could not find my_key in my_ht\n");
+}
+...
+
+4.24.  sht_inc(htname, itname)
+
+   Atomically increment the value of 'itname' in hash table 'htname'. This
+   API function is similar to '$shtinc(htname=>itname)', without returning
+   the value.
+
+   This function returns 1 on successful increment or -1 otherwise.
+
+   All parameters can be static strings or contain variables.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.42. sht_inc usage
+...
+if (!sht_inc("my_ht", "my_key")) {
+    xlog("L_ERR", "could not increment my_key\n");
+}
+...
+
+4.25.  sht_dec(htname, itname)
+
+   Atomically decrement the value of 'itname' in hash table 'htname'. This
+   API function is similar to '$sht_dec(htname=>itname)', without
+   returning the value.
+
+   This function returns 1 on successful decrement or -1 otherwise.
+
+   All parameters can be static strings or contain variables.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.43. sht_dec usage
+...
+if (!sht_dec("my_ht", "my_key")) {
+    xlog("L_ERR", "could not decrement my_key\n");
+}
+...
 
 5. Exported pseudo-variables
 
@@ -1061,12 +1277,13 @@ if(sht_match_str_value("ha", "eq", "alice")) {
      * $shtcn(htable=>key)
      * $shtcv(htable=>key)
      * $shtinc(htable=>key)
+     * $shtdec(htable=>key)
      * $shtitkey(iname)
      * $shtitval(iname)
      * $shtrecord(attribute)
 
    Exported pseudo-variables are documented at
-   https://www.kamailio.org/wiki/.
+   https://www.kamailio.org/wikidocs/.
 
 6. RPC Commands
 
@@ -1075,12 +1292,16 @@ if(sht_match_str_value("ha", "eq", "alice")) {
    6.3. htable.sets htable key value
    6.4. htable.seti htable key value
    6.5. htable.setex htable key expire
-   6.6. htable.dump htable
-   6.7. htable.reload htable
-   6.8. htable.store htable
-   6.9. htable.flush htable
-   6.10. htable.listTables
-   6.11. htable.stats
+   6.6. htable.setxs htable key value expire
+   6.7. htable.setxi htable key value expire
+   6.8. htable.dump htable
+   6.9. htable.reload htable
+   6.10. htable.store htable
+   6.11. htable.flush htable
+   6.12. htable.listTables
+   6.13. htable.stats
+   6.14. htable.dmqsync [htable]
+   6.15. htable.dmqresync htable
 
 6.1.  htable.get htable key
 
@@ -1090,15 +1311,19 @@ if(sht_match_str_value("ha", "eq", "alice")) {
 
    Parameters:
      * htable : Name of the hash table to dump
-     * key : Key name of the hash table value to dump
+     * key : Key name of the hash table value to dump. Note: if key name
+       is an integer value, it should be prefixed with s:
 
    Example:
 ...
 # Dump $sht(students=>alice)
-kamcmd htable.get students alice
+kamctl rpc htable.get students alice
+
+# Dump $sht(students=>15)
+kamctl rpc htable.get students s:15
 
 # Dump first entry in array key course $sht(students=>course[0])
-kamcmd htable.get students course[0]
+kamctl rpc htable.get students course[0]
 ...
 
 6.2.  htable.delete htable key
@@ -1109,15 +1334,19 @@ kamcmd htable.get students course[0]
 
    Parameters:
      * htable : Name of the hash table to delete
-     * key : Key name of the hash table value to delete
+     * key : Key name of the hash table value to delete. Note: if key name
+       is an integer value, it should be prefixed with s:
 
    Example:
 ...
 # Delete $sht(students=>alice)
-kamcmd htable.delete students alice
+kamctl rpc htable.delete students alice
+
+# Delete $sht(students=>15)
+kamctl rpc htable.delete students s:15
 
 # Delete first entry in array key course $sht(students=>course[0])
-kamcmd htable.delete students course[0]
+kamctl rpc htable.delete students course[0]
 ...
 
 6.3.  htable.sets htable key value
@@ -1128,16 +1357,20 @@ kamcmd htable.delete students course[0]
 
    Parameters:
      * htable : Name of the hash table
-     * key : Key name in the hash table
+     * key : Key name in the hash table. Note: if key name is an integer
+       value, it should be prefixed with s:
      * Value : String value for the item
 
    Example:
 ...
 # Set $sht(test=>x) as string
-kamcmd htable.sets test x abc
+kamctl rpc htable.sets test x abc
+
+# Set $sht(test=>5) as string
+kamctl rpc htable.sets test s:5 abc
 
 # Set firsti entry in array key x $sht(test=>x[0]) as string
-kamcmd htable.sets test x[0] abc
+kamctl rpc htable.sets test x[0] abc
 ...
 
 6.4.  htable.seti htable key value
@@ -1148,16 +1381,20 @@ kamcmd htable.sets test x[0] abc
 
    Parameters:
      * htable : Name of the hash table
-     * key : Key name in the hash table
+     * key : Key name in the hash table. Note: if key name is an integer
+       value, it should be prefixed with s:
      * Value : Integer value for the item
 
    Example:
 ...
 # Set $sht(test=>x) as integer
-kamcmd htable.seti test x 123
+kamctl rpc htable.seti test x 123
+
+# Set $sht(test=>5) as integer
+kamctl rpc htable.seti test s:5 123
 
 # Set first entry in array key x $sht(test=>x[0]) as integer
-kamcmd htable.seti test x[0] 123
+kamctl rpc htable.seti test x[0] 123
 ...
 
 6.5.  htable.setex htable key expire
@@ -1168,16 +1405,64 @@ kamcmd htable.seti test x[0] 123
 
    Parameters:
      * htable : name of the hash table
-     * key : key name in the hash table
+     * key : key name in the hash table. Note: if key name is an integer
+       value, it should be prefixed with s:
      * expire : integer value for the expire (seconds)
 
    Example:
 ...
-# set  expire for $sht(test=>x) to 120 secs
-kamctl rpc htable.seti test x 120
+# set expire for $sht(test=>x) to 120 secs
+kamctl rpc htable.setex test x 120
+
+# set expire for $sht(test=>10) to 120 secs
+kamctl rpc htable.setex test s:10 120
 ...
 
-6.6.  htable.dump htable
+6.6.  htable.setxs htable key value expire
+
+   Set the string value and expire for an item in hash table.
+
+   Name: htable.setxs
+
+   Parameters:
+     * htable : name of the hash table
+     * key : key name in the hash table. Note: if key name is an integer
+       value, it should be prefixed with s:
+     * value : string value for the item
+     * expire : integer value for the expire (seconds)
+
+   Example:
+...
+# set value to 'abc' and expire for $sht(test=>x) to 120 secs
+kamctl rpc htable.setxs test x abc 120
+
+# set value to 'abc' and expire for $sht(test=>10) to 120 secs
+kamctl rpc htable.setxs test s:10 abc 120
+...
+
+6.7.  htable.setxi htable key value expire
+
+   Set the integer value and expire for an item in hash table.
+
+   Name: htable.setxi
+
+   Parameters:
+     * htable : name of the hash table
+     * key : key name in the hash table. Note: if key name is an integer
+       value, it should be prefixed with s:
+     * value : integer value for the item
+     * expire : integer value for the expire (seconds)
+
+   Example:
+...
+# set value to 10 and expire for $sht(test=>x) to 120 secs
+kamctl rpc htable.setxi test x 10 120
+
+# set value to 10 and expire for $sht(test=>5) to 120 secs
+kamctl rpc htable.setxi test s:5 10 120
+...
+
+6.8.  htable.dump htable
 
    Lists all the values in a hash table
 
@@ -1188,10 +1473,10 @@ kamctl rpc htable.seti test x 120
 
    Example:
 ...
-kamcmd htable.dump ipban
+kamctl rpc htable.dump ipban
 ...
 
-6.7.  htable.reload htable
+6.9.  htable.reload htable
 
    Reload hash table from database.
 
@@ -1202,10 +1487,10 @@ kamcmd htable.dump ipban
 
    Example:
 ...
-kamcmd htable.reload ipban
+kamctl rpc htable.reload ipban
 ...
 
-6.8.  htable.store htable
+6.10.  htable.store htable
 
    Store hash table to database.
 
@@ -1216,10 +1501,10 @@ kamcmd htable.reload ipban
 
    Example:
 ...
-kamcmd htable.store ipban
+kamctl rpc htable.store ipban
 ...
 
-6.9.  htable.flush htable
+6.11.  htable.flush htable
 
    Empty the hash table
 
@@ -1230,10 +1515,10 @@ kamcmd htable.store ipban
 
    Example:
 ...
-kamcmd htable.flush ipban
+kamctl rpc htable.flush ipban
 ...
 
-6.10.  htable.listTables
+6.12.  htable.listTables
 
    Lists all defined tables
 
@@ -1244,10 +1529,10 @@ kamcmd htable.flush ipban
 
    Example:
 ...
-kamcmd htable.listTables
+kamctl rpc htable.listTables
 ...
 
-6.11.  htable.stats
+6.13.  htable.stats
 
    Get statistics for hash tables - name, number of slots, number of
    items, max number of items per slot, min number of items per slot.
@@ -1259,13 +1544,45 @@ kamcmd htable.listTables
 
    Example:
 ...
-kamcmd htable.stats
+kamctl rpc htable.stats
+...
+
+6.14.  htable.dmqsync [htable]
+
+   Perform a DMQ sync action.
+
+   Name: htable.dmqsync
+
+   Parameters:
+     * htable: name of the hash table to perform dmq sync for. If not
+       provided, sync is performed for all hash tables that have dmq sync
+       enabled.
+
+   Example:
+...
+kamctl rpc htable.dmqsync
+kamctl rpc htable.dmqsync ipban
+...
+
+6.15.  htable.dmqresync htable
+
+   Perform a resync action (flush and dmq sync).
+
+   Name: htable.dmqresync
+
+   Parameters:
+     * htable: name of the hash table to perform resync for.
+
+   Example:
+...
+kamctl rpc htable.dmqresync ipban
 ...
 
 7. Event routes
 
    7.1. htable:mod-init
    7.2. htable:expired:<table>
+   7.3. htable:reloaded:<table>
 
 7.1.  htable:mod-init
 
@@ -1300,5 +1617,16 @@ event_route[htable:mod-init] {
 
 event_route[htable:expired:mytable] {
     xlog("mytable record expired $shtrecord(key) => $shtrecord(value)\n");
+}
+...
+
+7.3.  htable:reloaded:<table>
+
+   When defined, the module calls event_route[htable:reloaded:<table>]
+   when a hash table was reloaded.
+...
+
+event_route[htable:reloaded:mytable] {
+    xlog("mytable was reloaded\n");
 }
 ...

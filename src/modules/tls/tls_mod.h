@@ -1,4 +1,4 @@
-/* 
+/*
  * TLS module - module interface
  *
  * Copyright (C) 2005 iptelorg GmbH
@@ -22,7 +22,6 @@
  */
 
 
-
 #ifndef _TLS_MOD_H
 #define _TLS_MOD_H
 
@@ -32,8 +31,8 @@
 
 
 /* Current TLS configuration */
-extern tls_domains_cfg_t** tls_domains_cfg;
-extern gen_lock_t* tls_domains_cfg_lock;
+extern tls_domains_cfg_t **tls_domains_cfg;
+extern gen_lock_t *tls_domains_cfg_lock;
 
 extern tls_domain_t cli_defaults;
 extern tls_domain_t srv_defaults;
@@ -41,5 +40,16 @@ extern tls_domain_t srv_defaults;
 extern str tls_domains_cfg_file;
 
 extern int sr_tls_renegotiation;
+extern int tls_child_rank;
+
+#include "tls_openssl.h"
+
+#ifdef KSR_SSL_COMMON
+int tls_reload_engine_keys(void);
+
+/** Defined in tls_mod.c; loads an engine/PKCS#11 private key by URI. */
+EVP_PKEY *tls_engine_private_key(const char *key_id);
+
+#endif /* KSR_SSL_COMMON */
 
 #endif /* _TLS_MOD_H */

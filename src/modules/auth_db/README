@@ -126,8 +126,8 @@ Chapter 1. Admin Guide
 
 2.1. Kamailio Modules
 
-   The module depends on the following modules (in the other words the
-   listed modules must be loaded before this module):
+   The module depends on the following modules (in other words the listed
+   modules must be loaded before this module):
      * auth -- Generic authentication functions
      * database -- Any database module (currently mysql, postgres, dbtext)
 
@@ -194,9 +194,11 @@ modparam("auth_db", "domain_column", "domain")
 
    This is the name of the column holding passwords. Passwords can be
    either stored as plain text or pre-calculated HA1 strings. HA1 strings
-   are MD5 hashes of username, password, and realm. HA1 strings are more
-   safe because the server doesn't need to know plaintext passwords and
-   they cannot be obtained from HA1 strings.
+   are hashes of username, password, and realm for the digest algorithm
+   used by authentication. When pre-calculated HA1 strings are used, they
+   must match the algorithm of the credentials being verified. HA1 strings
+   are safer because the server doesn't need to know plaintext passwords
+   and they cannot be obtained from HA1 strings.
 
    Default value is “ha1”.
 
@@ -233,7 +235,8 @@ modparam("auth_db", "password_column_2", "ha1_2")
    from the column given in the “password_column”parameter.
 
    If the parameter is set to 1 then the HA1 value will be calculated from
-   the column specified in the “password_column” parameter.
+   the column specified in the “password_column” parameter, using the
+   digest algorithm from the received credentials.
 
    The “password_column_2”column contain also HA1 strings but they should
    be calculated including the domain in the username parameter (as
@@ -345,14 +348,14 @@ modparam("auth_db", "force_generate_avps", 1)
        header with the correct realm.
      * -6 (nonce reused) - the nonce has already been used to authenticate
        a previous request
-     * -8 (authuser mismatch) - depending on the method, th From/To/RURI
+     * -8 (authuser mismatch) - depending on the method, the From/To/RURI
        user does not match the authentication user (see auth_check()
        function).
 
    Meaning of the parameters is as follows:
-     * realm - Realm is a opaque string that the user agent should present
-       to the user so he can decide what username and password to use.
-       Usually this is domain of the host the server is running on.
+     * realm - Realm is an opaque string that the user agent should
+       present to the user so he can decide what username and password to
+       use. Usually this is domain of the host the server is running on.
        It must not be empty string “”. In case of REGISTER requests To
        header field domain (e.g., variable $td) can be used (because this
        header field represents the user being registered), for all other
@@ -392,9 +395,9 @@ if (!www_authorize("kamailio.org", "subscriber")) {
    Negative return codes have the same meaning as for www_authenticate().
 
    Meaning of the parameters is as follows:
-     * realm - Realm is a opaque string that the user agent should present
-       to the user so he can decide what username and password to use.
-       Usually this is domain of the host the server is running on.
+     * realm - Realm is an opaque string that the user agent should
+       present to the user so he can decide what username and password to
+       use. Usually this is domain of the host the server is running on.
        It must not be empty string “”. Apart of a static string, typical
        value is From header field domain (e.g., variable $fd).
        If an empty string “” is used then the server will generate it from
@@ -421,7 +424,7 @@ if (!proxy_authorize("$fd", "subscriber)) {
 4.5.  auth_check(realm, table, flags)
 
    The function combines the functionalities of www_authenticate and
-   proxy_authenticate, first being exectuted if the SIP request is a
+   proxy_authenticate, first being executed if the SIP request is a
    REGISTER, the second for the rest.
 
    In addition, a matter of flags parameter value, the function checks if
@@ -431,9 +434,9 @@ if (!proxy_authorize("$fd", "subscriber)) {
    Negative return codes have the same meaning as for www_authenticate().
 
    Meaning of the parameters is as follows:
-     * realm - Realm is a opaque string that the user agent should present
-       to the user so he can decide what username and password to use.
-       Usually this is domain of the host the server is running on.
+     * realm - Realm is an opaque string that the user agent should
+       present to the user so he can decide what username and password to
+       use. Usually this is domain of the host the server is running on.
        It must not be empty string “”. Apart of a static string, typical
        value is From header field domain (e.g., variable $fd).
        The string may contain pseudo variables.
@@ -448,7 +451,8 @@ if (!proxy_authorize("$fd", "subscriber)) {
        user. All other requests: From header must match the authentication
        user. If bit 2 is set as well (flags==3), the ID check is skipped
        for INVITE, BYE, PRACK, UPDATE, MESSAGE - these requests can come
-       with anonymous caller id.
+       with anonymous caller id. If set to 0, then all user checks are
+       skipped.
        Additionally all domains in the checked URIs and the realm in the
        authentication header will be checked to match the provided realm
        parameter.
@@ -471,7 +475,7 @@ if (!auth_check("$fd", "subscriber", "1")) {
    authentication functions.
 
    In addition, if the subscriber record is found, then the
-   load_credentials attributes are loaded. An use case can be loading the
+   load_credentials attributes are loaded. A use case can be loading the
    credential attributes for callee.
 
    Meaning of the parameters is as follows:

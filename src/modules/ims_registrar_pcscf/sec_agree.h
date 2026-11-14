@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -30,7 +32,7 @@
  * @param params - ptr to struct sec_agree_params, where parsed values will be saved
  * @returns 0 on success, error code on failure
  */
-security_t* cscf_get_security(struct sip_msg *msg);
+security_t *cscf_get_security(struct sip_msg *msg);
 
 /**
  * Looks for the Security-Verify header
@@ -38,6 +40,15 @@ security_t* cscf_get_security(struct sip_msg *msg);
  * @param params - ptr to struct sec_agree_params, where parsed values will be saved
  * @returns 0 on success, error code on failure
  */
-security_t* cscf_get_security_verify(struct sip_msg *msg);
+security_t *cscf_get_security_verify(struct sip_msg *msg);
+
+/**
+ * Free a security_t allocated by parse_sec_agree() / cscf_get_security[_verify]().
+ * Safe to call with NULL. Frees the struct, the ipsec_t and all
+ * of its parsed string fields. Mirrors free_security() in
+ * ims_usrloc_pcscf/pcontact.c - keep the two in sync.
+ * @param params - the security_t to free (may be NULL)
+ */
+void free_security_t(security_t *params);
 
 #endif // SEC_AGREE_H

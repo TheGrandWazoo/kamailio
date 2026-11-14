@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -15,15 +17,15 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
- * along with this program; if not, write to the Free Software 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
 
 /*! \file
  * \brief Kamailio presence module
- * \ingroup presence 
+ * \ingroup presence
  */
 
 #include <stdio.h>
@@ -175,6 +177,7 @@ subs_t *mem_copy_subs(subs_t *s, int mem_type)
 	dest->expires = s->expires;
 	dest->db_flag = s->db_flag;
 	dest->flags = s->flags;
+	dest->received_time = s->received_time;
 
 	return dest;
 
@@ -231,6 +234,7 @@ subs_t *mem_copy_subs_noc(subs_t *s)
 	dest->expires = s->expires;
 	dest->db_flag = s->db_flag;
 	dest->flags = s->flags;
+	dest->received_time = s->received_time;
 
 	dest->contact.s = (char *)shm_malloc(s->contact.len * sizeof(char));
 	if(dest->contact.s == NULL) {
@@ -250,50 +254,25 @@ subs_t *mem_copy_subs_noc(subs_t *s)
 	return dest;
 
 error:
-	if(dest)
+	if(dest) {
+		if(dest->contact.s)
+			shm_free(dest->contact.s);
+		if(dest->record_route.s)
+			shm_free(dest->record_route.s);
 		shm_free(dest);
+	}
 	return NULL;
 }
 
-int insert_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
+int insert_and_replace_shtable(
+		shtable_t htable, unsigned int hash_code, subs_t *subs, int replace)
 {
 	subs_t *new_rec = NULL;
 
-	if (pres_delete_same_subs) {
-		subs_t* rec = NULL, *prev_rec = NULL;
+	subs_t *rec = NULL, *prev_rec = NULL;
 
-		lock_get(&htable[hash_code].lock);
-		/* search if there is another record with the same pres_uri & callid */
-		rec = htable[hash_code].entries->next;
-		while (rec) {
-			if (subs->pres_uri.len == rec->pres_uri.len && subs->callid.len == rec->callid.len &&
-					memcmp(subs->pres_uri.s, rec->pres_uri.s, subs->pres_uri.len) == 0 &&
-					memcmp(subs->callid.s, rec->callid.s, subs->callid.len) == 0) {
-				LM_NOTICE("Found another record with the same pres_uri[%.*s] and callid[%.*s]\n",
-					subs->pres_uri.len, subs->pres_uri.s, subs->callid.len, subs->callid.s);
-				/* delete this record */
-
-				if (prev_rec) {
-					prev_rec->next = rec->next;
-				} else {
-					htable[hash_code].entries->next = rec->next;
-				}
-
-				if (pres_subs_dbmode != NO_DB) {
-					delete_db_subs(&rec->to_tag, &rec->from_tag, &rec->callid);
-				}
-
-				if (rec->contact.s!=NULL) {
-					shm_free(rec->contact.s);
-				}
-
-				shm_free(rec);
-				break;
-			}
-			prev_rec = rec;
-			rec = rec->next;
-		}
-		lock_release(&htable[hash_code].lock);
+	if(subs->received_time == 0) {
+		subs->received_time = (unsigned int)time(NULL);
 	}
 
 	new_rec = mem_copy_subs_noc(subs);
@@ -301,9 +280,90 @@ int insert_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
 		LM_ERR("copying in share memory a subs_t structure\n");
 		return -1;
 	}
-	new_rec->expires += (int)time(NULL);
+	if(subs->expires != 0 && subs->expires < ksr_time_sint(NULL, NULL))
+		new_rec->expires += ksr_time_sint(NULL, NULL);
 
 	lock_get(&htable[hash_code].lock);
+	if(replace || pres_delete_same_subs) {
+		/* search if there is another record with the same pres_uri & callid */
+		rec = htable[hash_code].entries->next;
+		while(rec) {
+			if(new_rec->pres_uri.len == rec->pres_uri.len
+					&& new_rec->callid.len == rec->callid.len
+					&& memcmp(new_rec->pres_uri.s, rec->pres_uri.s,
+							   new_rec->pres_uri.len)
+							   == 0
+					&& memcmp(new_rec->callid.s, rec->callid.s,
+							   new_rec->callid.len)
+							   == 0) {
+				LM_DBG("Found another record with the same pres_uri[%.*s], "
+					   "callid[%.*s],"
+					   " from_tag[%.*s] and to_tag[%.*s]\n",
+						new_rec->pres_uri.len, new_rec->pres_uri.s,
+						new_rec->callid.len, new_rec->callid.s,
+						new_rec->from_tag.len, new_rec->from_tag.s,
+						new_rec->to_tag.len, new_rec->to_tag.s);
+
+				/* LWW: skip replace if local record is newer, for same dialog */
+				if(rec->received_time > new_rec->received_time
+						&& rec->from_tag.len == new_rec->from_tag.len
+						&& rec->to_tag.len == new_rec->to_tag.len
+						&& memcmp(rec->from_tag.s, new_rec->from_tag.s,
+								   new_rec->from_tag.len)
+								   == 0
+						&& memcmp(rec->to_tag.s, new_rec->to_tag.s,
+								   new_rec->to_tag.len)
+								   == 0) {
+					LM_DBG("LWW: skipping stale subscription replace "
+						   "for contact=[%.*s] pres_uri="
+						   "[%.*s] local_recv=%u incoming_recv=%u\n",
+							rec->contact.len, rec->contact.s, rec->pres_uri.len,
+							rec->pres_uri.s, rec->received_time,
+							new_rec->received_time);
+					lock_release(&htable[hash_code].lock);
+					if(new_rec->contact.s != NULL) {
+						shm_free(new_rec->contact.s);
+					}
+					if(new_rec->record_route.s != NULL) {
+						shm_free(new_rec->record_route.s);
+					}
+					shm_free(new_rec);
+					return 0;
+				}
+
+				/* delete this record */
+
+				if(prev_rec) {
+					prev_rec->next = rec->next;
+				} else {
+					htable[hash_code].entries->next = rec->next;
+				}
+
+				if(pres_subs_dbmode != NO_DB) {
+					delete_db_subs(&rec->to_tag, &rec->from_tag, &rec->callid);
+				}
+
+				if(rec->contact.s != NULL) {
+					shm_free(rec->contact.s);
+				}
+				if(rec->record_route.s != NULL) {
+					shm_free(rec->record_route.s);
+				}
+
+				shm_free(rec);
+
+				if(prev_rec) {
+					rec = prev_rec->next;
+				} else {
+					rec = htable[hash_code].entries->next;
+				}
+			} else {
+				prev_rec = rec;
+				rec = rec->next;
+			}
+		}
+	}
+
 	new_rec->next = htable[hash_code].entries->next;
 	htable[hash_code].entries->next = new_rec;
 	lock_release(&htable[hash_code].lock);
@@ -311,10 +371,24 @@ int insert_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
 	return 0;
 }
 
+int insert_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
+{
+	return insert_and_replace_shtable(htable, hash_code, subs, 0);
+}
+
+int replace_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
+{
+	return insert_and_replace_shtable(htable, hash_code, subs, 1);
+}
+
 int delete_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
 {
 	subs_t *s = NULL, *ps = NULL;
 	int found = -1;
+
+	if(subs->received_time == 0) {
+		subs->received_time = (unsigned int)time(NULL);
+	}
 
 	lock_get(&htable[hash_code].lock);
 
@@ -345,17 +419,27 @@ int delete_shtable(shtable_t htable, unsigned int hash_code, subs_t *subs)
 			}
 		}
 		if(found == 0) {
+			/* LWW: skip delete if local record is newer */
+			if(s->received_time > subs->received_time) {
+				LM_DBG("LWW: skipping stale subscription delete for contact="
+					   "[%.*s] pres_uri="
+					   "[%.*s] local_recv=%u incoming_recv=%u\n",
+						s->contact.len, s->contact.s, s->pres_uri.len,
+						s->pres_uri.s, s->received_time, subs->received_time);
+				lock_release(&htable[hash_code].lock);
+				return 0;
+			}
 			found = s->local_cseq + 1;
 			ps->next = s->next;
-			if(s->contact.s != NULL) {
-				shm_free(s->contact.s);
-				s->contact.s = NULL;
-			}
-			if(s->record_route.s != NULL) {
-				shm_free(s->record_route.s);
-				s->record_route.s = NULL;
-			}
 			if(s) {
+				if(s->contact.s != NULL) {
+					shm_free(s->contact.s);
+					s->contact.s = NULL;
+				}
+				if(s->record_route.s != NULL) {
+					shm_free(s->record_route.s);
+					s->record_route.s = NULL;
+				}
 				shm_free(s);
 				s = NULL;
 			}
@@ -398,6 +482,10 @@ int update_shtable(
 {
 	subs_t *s;
 
+	if(subs->received_time == 0) {
+		subs->received_time = (unsigned int)time(NULL);
+	}
+
 	lock_get(&htable[hash_code].lock);
 
 	s = search_shtable(
@@ -408,9 +496,21 @@ int update_shtable(
 		return -1;
 	}
 
+	/* LWW: skip update if local record is newer */
+	if((type & REMOTE_TYPE) && s->received_time > subs->received_time) {
+		LM_DBG("LWW: skipping stale subscription update for contact="
+			   "[%.*s] pres_uri="
+			   "[%.*s] local_recv=%u incoming_recv=%u\n",
+				s->contact.len, s->contact.s, s->pres_uri.len, s->pres_uri.s,
+				s->received_time, subs->received_time);
+		lock_release(&htable[hash_code].lock);
+		return 0;
+	}
+
 	if(type & REMOTE_TYPE) {
-		s->expires = subs->expires + (int)time(NULL);
+		s->expires = subs->expires + ksr_time_sint(NULL, NULL);
 		s->remote_cseq = subs->remote_cseq;
+		s->received_time = subs->received_time;
 	} else {
 		subs->local_cseq = ++s->local_cseq;
 		subs->version = ++s->version;
@@ -514,7 +614,6 @@ void destroy_phtable(void)
 	shm_free(pres_htable);
 }
 /* entry must be locked before calling this function */
-
 pres_entry_t *search_phtable(str *pres_uri, int event, unsigned int hash_code)
 {
 	pres_entry_t *p;
@@ -714,13 +813,14 @@ ps_ptable_t *ps_ptable_get(void)
 	return _ps_ptable;
 }
 
-#define PS_PRESENTITY_FIELD_COPY(field) do { \
-		if (pt->field.s) { \
-			ptn->field.s = p; \
+#define PS_PRESENTITY_FIELD_COPY(field)                       \
+	do {                                                      \
+		if(pt->field.s) {                                     \
+			ptn->field.s = p;                                 \
 			memcpy(ptn->field.s, pt->field.s, pt->field.len); \
-		} \
-		ptn->field.len = pt->field.len; \
-		p += pt->field.len + 1; \
+		}                                                     \
+		ptn->field.len = pt->field.len;                       \
+		p += pt->field.len + 1;                               \
 	} while(0)
 
 /**
@@ -732,24 +832,19 @@ ps_presentity_t *ps_presentity_new(ps_presentity_t *pt, int mtype)
 	ps_presentity_t *ptn = NULL;
 	char *p = NULL;
 
-	if(pt==NULL) {
+	if(pt == NULL) {
 		return NULL;
 	}
-	bsize = sizeof(ps_presentity_t)
-			+ pt->user.len + 1
-			+ pt->domain.len + 1
-			+ pt->etag.len + 1
-			+ pt->event.len + 1
-			+ pt->ruid.len + 1
-			+ pt->sender.len + 1
-			+ pt->body.len + 1;
-	if(mtype==0) {
-		ptn = (ps_presentity_t*)shm_malloc(bsize);
+	bsize = sizeof(ps_presentity_t) + pt->user.len + 1 + pt->domain.len + 1
+			+ pt->etag.len + 1 + pt->event.len + 1 + pt->ruid.len + 1
+			+ pt->sender.len + 1 + pt->body.len + 1;
+	if(mtype == 0) {
+		ptn = (ps_presentity_t *)shm_malloc(bsize);
 	} else {
-		ptn = (ps_presentity_t*)pkg_malloc(bsize);
+		ptn = (ps_presentity_t *)pkg_malloc(bsize);
 	}
-	if(ptn==NULL) {
-		if(mtype==0) {
+	if(ptn == NULL) {
+		if(mtype == 0) {
 			SHM_MEM_ERROR;
 		} else {
 			PKG_MEM_ERROR;
@@ -762,9 +857,12 @@ ps_presentity_t *ps_presentity_new(ps_presentity_t *pt, int mtype)
 	ptn->hashid = core_case_hash(&pt->user, &pt->domain, 0);
 	ptn->expires = pt->expires;
 	ptn->received_time = pt->received_time;
+	if(ptn->received_time == 0) {
+		ptn->received_time = (int)time(NULL);
+	}
 	ptn->priority = pt->priority;
 
-	p = (char*)ptn + sizeof(ps_presentity_t);
+	p = (char *)ptn + sizeof(ps_presentity_t);
 	PS_PRESENTITY_FIELD_COPY(user);
 	PS_PRESENTITY_FIELD_COPY(domain);
 	PS_PRESENTITY_FIELD_COPY(etag);
@@ -781,10 +879,10 @@ ps_presentity_t *ps_presentity_new(ps_presentity_t *pt, int mtype)
  */
 void ps_presentity_free(ps_presentity_t *pt, int mtype)
 {
-	if(pt==NULL) {
+	if(pt == NULL) {
 		return;
 	}
-	if(mtype==0) {
+	if(mtype == 0) {
 		shm_free(pt);
 	} else {
 		pkg_free(pt);
@@ -799,23 +897,24 @@ void ps_presentity_list_free(ps_presentity_t *pt, int mtype)
 	ps_presentity_t *ptc = NULL;
 	ps_presentity_t *ptn = NULL;
 
-	if(pt==NULL) {
+	if(pt == NULL) {
 		return;
 	}
 
 	ptn = pt;
-	while(ptn!=NULL) {
+	while(ptn != NULL) {
 		ptc = ptn;
 		ptn = ptn->next;
 		ps_presentity_free(ptc, mtype);
 	}
 }
 
-#define PS_PRESENTITY_FIELD_SHIFT(field) do { \
-		if (pt->field.s) { \
-			ptn->field.s = p; \
-		} \
-		p += pt->field.len + 1; \
+#define PS_PRESENTITY_FIELD_SHIFT(field) \
+	do {                                 \
+		if(pt->field.s) {                \
+			ptn->field.s = p;            \
+		}                                \
+		p += pt->field.len + 1;          \
 	} while(0)
 
 /**
@@ -826,16 +925,16 @@ ps_presentity_t *ps_presentity_dup(ps_presentity_t *pt, int mtype)
 	ps_presentity_t *ptn = NULL;
 	char *p = NULL;
 
-	if(pt==NULL) {
+	if(pt == NULL) {
 		return NULL;
 	}
-	if(mtype==0) {
-		ptn = (ps_presentity_t*)shm_malloc(pt->bsize);
+	if(mtype == 0) {
+		ptn = (ps_presentity_t *)shm_malloc(pt->bsize);
 	} else {
-		ptn = (ps_presentity_t*)pkg_malloc(pt->bsize);
+		ptn = (ps_presentity_t *)pkg_malloc(pt->bsize);
 	}
-	if(ptn==NULL) {
-		if(mtype==0) {
+	if(ptn == NULL) {
+		if(mtype == 0) {
 			SHM_MEM_ERROR;
 		} else {
 			PKG_MEM_ERROR;
@@ -843,9 +942,9 @@ ps_presentity_t *ps_presentity_dup(ps_presentity_t *pt, int mtype)
 		return NULL;
 	}
 
-	memcpy((void*)ptn, pt, pt->bsize);
+	memcpy((void *)ptn, pt, pt->bsize);
 
-	p = (char*)ptn + sizeof(ps_presentity_t);
+	p = (char *)ptn + sizeof(ps_presentity_t);
 	PS_PRESENTITY_FIELD_SHIFT(user);
 	PS_PRESENTITY_FIELD_SHIFT(domain);
 	PS_PRESENTITY_FIELD_SHIFT(etag);
@@ -888,22 +987,22 @@ int ps_presentity_match(ps_presentity_t *pta, ps_presentity_t *ptb, int mmode)
 		}
 	}
 
-	if(strncmp(pta->user.s, ptb->user.s, pta->user.len)!=0) {
+	if(strncmp(pta->user.s, ptb->user.s, pta->user.len) != 0) {
 		return 0;
 	}
 
-	if(strncmp(pta->domain.s, ptb->domain.s, pta->domain.len)!=0) {
+	if(strncmp(pta->domain.s, ptb->domain.s, pta->domain.len) != 0) {
 		return 0;
 	}
 
 	if(mmode > 0) {
-		if(strncmp(pta->event.s, ptb->event.s, pta->event.len)!=0) {
+		if(strncmp(pta->event.s, ptb->event.s, pta->event.len) != 0) {
 			return 0;
 		}
 	}
 
 	if(mmode > 1) {
-		if(strncmp(pta->etag.s, ptb->etag.s, pta->etag.len)!=0) {
+		if(strncmp(pta->etag.s, ptb->etag.s, pta->etag.len) != 0) {
 			return 0;
 		}
 	}
@@ -918,19 +1017,20 @@ int ps_ptable_init(int ssize)
 	size_t tsize = 0;
 	int i = 0;
 
-	if(_ps_ptable!=NULL) {
+	if(_ps_ptable != NULL) {
 		return 0;
 	}
 	tsize = sizeof(ps_ptable_t) + (ssize * sizeof(ps_pslot_t));
-	_ps_ptable = (ps_ptable_t*)shm_malloc(tsize);
-	if(_ps_ptable==NULL) {
+	_ps_ptable = (ps_ptable_t *)shm_malloc(tsize);
+	if(_ps_ptable == NULL) {
 		SHM_MEM_ERROR;
 		return -1;
 	}
 	memset(_ps_ptable, 0, tsize);
 	_ps_ptable->ssize = ssize;
-	_ps_ptable->slots = (ps_pslot_t*)((char*)_ps_ptable + sizeof(ps_ptable_t));
-	for(i=0; i<ssize; i++) {
+	_ps_ptable->slots =
+			(ps_pslot_t *)((char *)_ps_ptable + sizeof(ps_ptable_t));
+	for(i = 0; i < ssize; i++) {
 		if(lock_init(&_ps_ptable->slots[i].lock) == 0) {
 			LM_ERR("initializing lock on slot [%d]\n", i);
 			goto error;
@@ -941,7 +1041,7 @@ int ps_ptable_init(int ssize)
 
 error:
 	i--;
-	while(i>=0) {
+	while(i >= 0) {
 		lock_destroy(&_ps_ptable->slots[i].lock);
 		i--;
 	}
@@ -959,13 +1059,13 @@ void ps_ptable_destroy(void)
 	ps_presentity_t *pt = NULL;
 	ps_presentity_t *ptn = NULL;
 
-	if(_ps_ptable==NULL) {
+	if(_ps_ptable == NULL) {
 		return;
 	}
-	for(i=0; i<_ps_ptable->ssize; i++) {
+	for(i = 0; i < _ps_ptable->ssize; i++) {
 		lock_destroy(&_ps_ptable->slots[i].lock);
 		pt = _ps_ptable->slots[i].plist;
-		while(pt!=NULL) {
+		while(pt != NULL) {
 			ptn = pt->next;
 			ps_presentity_free(pt, 0);
 			pt = ptn;
@@ -998,7 +1098,7 @@ int ps_ptable_insert(ps_presentity_t *pt)
 	}
 
 	ptn = ps_presentity_new(&ptc, 0);
-	if(ptn==NULL) {
+	if(ptn == NULL) {
 		return -1;
 	}
 
@@ -1025,6 +1125,7 @@ int ps_ptable_replace(ps_presentity_t *ptm, ps_presentity_t *pt)
 	ps_presentity_t ptc;
 	ps_presentity_t ptv;
 	ps_presentity_t *ptn = NULL;
+	ps_presentity_t *ptnx = NULL;
 	uint32_t idx = 0;
 
 	/* copy struct to fill in missing fields */
@@ -1045,8 +1146,18 @@ int ps_ptable_replace(ps_presentity_t *ptm, ps_presentity_t *pt)
 
 	lock_get(&_ps_ptable->slots[idx].lock);
 	ptn = _ps_ptable->slots[idx].plist;
-	while(ptn!=NULL) {
-		if(ps_presentity_match(ptn, &ptc, 2)==1) {
+	while(ptn != NULL) {
+		if(ps_presentity_match(ptn, &ptc, 2) == 1) {
+			/* LWW: skip replace if local record is newer */
+			if(ptv.received_time > 0
+					&& ptn->received_time > ptv.received_time) {
+				LM_DBG("LWW: skipping stale presentity replace for "
+					   "%.*s@%.*s local_recv=%d incoming_recv=%d\n",
+						ptn->user.len, ptn->user.s, ptn->domain.len,
+						ptn->domain.s, ptn->received_time, ptv.received_time);
+				lock_release(&_ps_ptable->slots[idx].lock);
+				return 0;
+			}
 			if(ptn->next) {
 				ptn->next->prev = ptn->prev;
 			}
@@ -1055,17 +1166,16 @@ int ps_ptable_replace(ps_presentity_t *ptm, ps_presentity_t *pt)
 			} else {
 				_ps_ptable->slots[idx].plist = ptn->next;
 			}
-			break;
+			ptnx = ptn->next;
+			ps_presentity_free(ptn, 0);
+			ptn = ptnx;
+		} else {
+			ptn = ptn->next;
 		}
-		ptn = ptn->next;
-	}
-
-	if(ptn!=NULL) {
-		ps_presentity_free(ptn, 0);
 	}
 
 	ptn = ps_presentity_new(&ptv, 0);
-	if(ptn==NULL) {
+	if(ptn == NULL) {
 		lock_release(&_ps_ptable->slots[idx].lock);
 		return -1;
 	}
@@ -1110,8 +1220,18 @@ int ps_ptable_update(ps_presentity_t *ptm, ps_presentity_t *pt)
 
 	lock_get(&_ps_ptable->slots[idx].lock);
 	ptn = _ps_ptable->slots[idx].plist;
-	while(ptn!=NULL) {
-		if(ps_presentity_match(ptn, &ptc, 2)==1) {
+	while(ptn != NULL) {
+		if(ps_presentity_match(ptn, &ptc, 2) == 1) {
+			/* LWW: skip update if local record is newer */
+			if(ptv.received_time > 0
+					&& ptn->received_time > ptv.received_time) {
+				LM_DBG("LWW: skipping stale presentity update for "
+					   "%.*s@%.*s local_recv=%d incoming_recv=%d\n",
+						ptn->user.len, ptn->user.s, ptn->domain.len,
+						ptn->domain.s, ptn->received_time, ptv.received_time);
+				lock_release(&_ps_ptable->slots[idx].lock);
+				return 0;
+			}
 			if(ptn->next) {
 				ptn->next->prev = ptn->prev;
 			}
@@ -1132,7 +1252,7 @@ int ps_ptable_update(ps_presentity_t *ptm, ps_presentity_t *pt)
 	ps_presentity_free(ptn, 0);
 
 	ptn = ps_presentity_new(&ptv, 0);
-	if(ptn==NULL) {
+	if(ptn == NULL) {
 		lock_release(&_ps_ptable->slots[idx].lock);
 		return -1;
 	}
@@ -1166,8 +1286,18 @@ int ps_ptable_remove(ps_presentity_t *pt)
 
 	lock_get(&_ps_ptable->slots[idx].lock);
 	ptn = _ps_ptable->slots[idx].plist;
-	while(ptn!=NULL) {
-		if(ps_presentity_match(ptn, &ptc, 2)==1) {
+	while(ptn != NULL) {
+		if(ps_presentity_match(ptn, &ptc, 2) == 1) {
+			/* LWW: skip delete if local record is newer */
+			if(ptc.received_time > 0
+					&& ptn->received_time > ptc.received_time) {
+				LM_DBG("LWW: skipping stale presentity delete for "
+					   "%.*s@%.*s local_recv=%d incoming_recv=%d\n",
+						ptn->user.len, ptn->user.s, ptn->domain.len,
+						ptn->domain.s, ptn->received_time, ptc.received_time);
+				lock_release(&_ps_ptable->slots[idx].lock);
+				return 0;
+			}
 			if(ptn->next) {
 				ptn->next->prev = ptn->prev;
 			}
@@ -1209,13 +1339,13 @@ ps_presentity_t *ps_ptable_get_list(str *user, str *domain)
 
 	lock_get(&_ps_ptable->slots[idx].lock);
 	ptn = _ps_ptable->slots[idx].plist;
-	while(ptn!=NULL) {
-		if(ps_presentity_match(ptn, &ptc, 0)==1) {
+	while(ptn != NULL) {
+		if(ps_presentity_match(ptn, &ptc, 0) == 1) {
 			ptd = ps_presentity_dup(ptn, 1);
 			if(ptd == NULL) {
 				break;
 			}
-			if(pte==NULL) {
+			if(pte == NULL) {
 				ptl = ptd;
 			} else {
 				pte->next = ptd;
@@ -1227,7 +1357,7 @@ ps_presentity_t *ps_ptable_get_list(str *user, str *domain)
 	}
 	lock_release(&_ps_ptable->slots[idx].lock);
 
-	if(ptd==NULL && ptl != NULL) {
+	if(ptd == NULL && ptl != NULL) {
 		ps_presentity_list_free(ptl, 1);
 		return NULL;
 	}
@@ -1247,19 +1377,24 @@ ps_presentity_t *ps_ptable_search(ps_presentity_t *ptm, int mmode, int rmode)
 	uint32_t idx = 0;
 	int pmax = 0;
 
+	if(ptm->user.s == NULL || ptm->domain.s == NULL) {
+		LM_WARN("no user or domain for presentity\n");
+		return NULL;
+	}
+
 	ptm->hashid = core_case_hash(&ptm->user, &ptm->domain, 0);
 	idx = core_hash_idx(ptm->hashid, _ps_ptable->ssize);
 
 	lock_get(&_ps_ptable->slots[idx].lock);
 	ptn = _ps_ptable->slots[idx].plist;
-	while(ptn!=NULL) {
-		if((ps_presentity_match(ptn, ptm, mmode)==1)
-				&& (ptm->expires==0 || ptn->expires > ptm->expires)) {
+	while(ptn != NULL) {
+		if((ps_presentity_match(ptn, ptm, mmode) == 1)
+				&& (ptm->expires == 0 || ptn->expires > ptm->expires)) {
 			ptd = ps_presentity_dup(ptn, 1);
 			if(ptd == NULL) {
 				break;
 			}
-			if(pte==NULL) {
+			if(pte == NULL) {
 				ptl = ptd;
 			} else {
 				pte->next = ptd;
@@ -1271,19 +1406,19 @@ ps_presentity_t *ps_ptable_search(ps_presentity_t *ptm, int mmode, int rmode)
 	}
 	lock_release(&_ps_ptable->slots[idx].lock);
 
-	if(ptd==NULL && ptl != NULL) {
+	if(ptd == NULL && ptl != NULL) {
 		ps_presentity_list_free(ptl, 1);
 		return NULL;
 	}
 
-	if(rmode==1) {
+	if(rmode == 1) {
 		/* order list by priority */
 		pte = NULL;
-		while(ptl!=NULL) {
+		while(ptl != NULL) {
 			pmax = 0;
 			ptn = ptl;
 			ptd = ptl;
-			while(ptn!=NULL) {
+			while(ptn != NULL) {
 				if(ptn->priority >= pmax) {
 					pmax = ptn->priority;
 					ptd = ptn;
@@ -1325,7 +1460,8 @@ ps_presentity_t *ps_ptable_search(ps_presentity_t *ptm, int mmode, int rmode)
 /**
  *
  */
-ps_presentity_t *ps_ptable_get_item(str *user, str *domain, str *event, str *etag)
+ps_presentity_t *ps_ptable_get_item(
+		str *user, str *domain, str *event, str *etag)
 {
 	ps_presentity_t ptc;
 	ps_presentity_t *ptn = NULL;
@@ -1343,8 +1479,8 @@ ps_presentity_t *ps_ptable_get_item(str *user, str *domain, str *event, str *eta
 
 	lock_get(&_ps_ptable->slots[idx].lock);
 	ptn = _ps_ptable->slots[idx].plist;
-	while(ptn!=NULL) {
-		if(ps_presentity_match(ptn, &ptc, 2)==1) {
+	while(ptn != NULL) {
+		if(ps_presentity_match(ptn, &ptc, 2) == 1) {
 			ptd = ps_presentity_dup(ptn, 1);
 			break;
 		}
@@ -1370,16 +1506,16 @@ ps_presentity_t *ps_ptable_get_expired(int eval)
 		return NULL;
 	}
 
-	for(i=0; i<_ps_ptable->ssize; i++) {
+	for(i = 0; i < _ps_ptable->ssize; i++) {
 		lock_get(&_ps_ptable->slots[i].lock);
 		ptn = _ps_ptable->slots[i].plist;
-		while(ptn!=NULL) {
+		while(ptn != NULL) {
 			if(ptn->expires > 0 && ptn->expires <= eval) {
 				ptd = ps_presentity_dup(ptn, 1);
 				if(ptd == NULL) {
 					break;
 				}
-				if(pte==NULL) {
+				if(pte == NULL) {
 					ptl = ptd;
 				} else {
 					pte->next = ptd;
@@ -1392,7 +1528,7 @@ ps_presentity_t *ps_ptable_get_expired(int eval)
 		lock_release(&_ps_ptable->slots[i].lock);
 	}
 
-	if(ptd==NULL && ptl != NULL) {
+	if(ptd == NULL && ptl != NULL) {
 		ps_presentity_list_free(ptl, 1);
 		return NULL;
 	}

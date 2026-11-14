@@ -8,6 +8,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -57,6 +59,11 @@ int ldap_rfc4515_escape(str *sin, str *sout, int url_encode)
 
 	while(src < (sin->s + sin->len)) {
 		switch(*src) {
+			case '\0':
+				*dst++ = '\\';
+				*dst++ = '0';
+				*dst = '0';
+				break;
 			case '*':
 				*dst++ = '\\';
 				*dst++ = '2';

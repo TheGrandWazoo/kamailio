@@ -20,51 +20,49 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
- * along with this program; if not, write to the Free Software 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
 #include "param_parser.h"
 #include "digest_keys.h"
+#include "../parse_bytes.h"
 #include "../../trim.h"
 #include "../../ut.h"
-
-#define LOWER_BYTE(b) ((b) | 0x20)
-#define LOWER_DWORD(d) ((d) | 0x20202020)
 
 /*
  * Parse short (less than 4 bytes) parameter names
  */
-#define PARSE_SHORT                                                   \
-	switch(LOWER_BYTE(*p)) {                                      \
-	case 'u':                                                     \
-		if (LOWER_BYTE(*(p + 1)) == 'r') {                    \
-			if (LOWER_BYTE(*(p + 2)) == 'i') {            \
-				*_type = PAR_URI;                     \
-                                p += 3;                               \
-				goto end;                             \
-			}                                             \
-		}                                                     \
-		break;                                                \
-                                                                      \
-	case 'q':                                                     \
-		if (LOWER_BYTE(*(p + 1)) == 'o') {                    \
-			if (LOWER_BYTE(*(p + 2)) == 'p') {            \
-				*_type = PAR_QOP;                     \
-                                p += 3;                               \
-				goto end;                             \
-			}                                             \
-		}                                                     \
-		break;                                                \
-                                                                      \
-	case 'n':                                                     \
-		if (LOWER_BYTE(*(p + 1)) == 'c') {                    \
-			*_type = PAR_NC;                              \
-                        p += 2;                                       \
-			goto end;                                     \
-		}                                                     \
-		break;                                                \
+#define PARSE_SHORT                                                      \
+	switch(ksr_ascii_lower_u8((unsigned char)*p)) {                      \
+		case 'u':                                                        \
+			if(ksr_ascii_lower_u8((unsigned char)*(p + 1)) == 'r') {     \
+				if(ksr_ascii_lower_u8((unsigned char)*(p + 2)) == 'i') { \
+					*_type = PAR_URI;                                    \
+					p += 3;                                              \
+					goto end;                                            \
+				}                                                        \
+			}                                                            \
+			break;                                                       \
+                                                                         \
+		case 'q':                                                        \
+			if(ksr_ascii_lower_u8((unsigned char)*(p + 1)) == 'o') {     \
+				if(ksr_ascii_lower_u8((unsigned char)*(p + 2)) == 'p') { \
+					*_type = PAR_QOP;                                    \
+					p += 3;                                              \
+					goto end;                                            \
+				}                                                        \
+			}                                                            \
+			break;                                                       \
+                                                                         \
+		case 'n':                                                        \
+			if(ksr_ascii_lower_u8((unsigned char)*(p + 1)) == 'c') {     \
+				*_type = PAR_NC;                                         \
+				p += 2;                                                  \
+				goto end;                                                \
+			}                                                            \
+			break;                                                       \
 	}
 
 
@@ -74,152 +72,182 @@
  * does not allow reading 4-bytes at once from unaligned memory position
  * (Sparc for example)
  */
-#define READ(val) \
-(*(val + 0) + (*(val + 1) << 8) + (*(val + 2) << 16) + (*(val + 3) << 24))
+#define HAVE_CHARS(_p, _n) ((end - (_p)) >= (_n))
 
 
 #define name_CASE                      \
-        switch(LOWER_DWORD(val)) {     \
-        case _name_:                   \
-		*_type = PAR_USERNAME; \
-                p += 4;                \
-		goto end;              \
-        }
-
-
-#define user_CASE         \
-        p += 4;           \
-        val = READ(p);    \
-        name_CASE;        \
-        goto other;
-
-
-#define real_CASE                         \
-        p += 4;                           \
-        if (LOWER_BYTE(*p) == 'm') {      \
-		*_type = PAR_REALM;       \
-                p++;                      \
-		goto end;                 \
+	switch(ksr_ascii_lower_u32(val)) { \
+		case _name_:                   \
+			*_type = PAR_USERNAME;     \
+			p += 4;                    \
+			goto end;                  \
 	}
 
 
-#define nonc_CASE                         \
-        p += 4;                           \
-        if (LOWER_BYTE(*p) == 'e') {      \
-	        *_type = PAR_NONCE;       \
-                p++;                      \
-		goto end;                 \
+#define user_CASE            \
+	p += 4;                  \
+	if(!HAVE_CHARS(p, 4)) {  \
+		goto other;          \
+	}                        \
+	val = ksr_read_u32le(p); \
+	name_CASE;               \
+	goto other;
+
+
+#define real_CASE                                      \
+	p += 4;                                            \
+	if(!HAVE_CHARS(p, 1)) {                            \
+		goto other;                                    \
+	}                                                  \
+	if(ksr_ascii_lower_u8((unsigned char)*p) == 'm') { \
+		*_type = PAR_REALM;                            \
+		p++;                                           \
+		goto end;                                      \
+	}
+
+
+#define nonc_CASE                                      \
+	p += 4;                                            \
+	if(!HAVE_CHARS(p, 1)) {                            \
+		goto other;                                    \
+	}                                                  \
+	if(ksr_ascii_lower_u8((unsigned char)*p) == 'e') { \
+		*_type = PAR_NONCE;                            \
+		p++;                                           \
+		goto end;                                      \
 	}
 
 
 #define onse_CASE                      \
-        switch(LOWER_DWORD(val)) {     \
-        case _onse_:                   \
-		*_type = PAR_RESPONSE; \
-                p += 4;                \
-		goto end;              \
-        }
-
-
-#define resp_CASE         \
-        p += 4;           \
-        val = READ(p);    \
-        onse_CASE;        \
-        goto other;
-
-
-#define cnon_CASE                                 \
-        p += 4;                                   \
-        if (LOWER_BYTE(*p) == 'c') {              \
-		p++;                              \
-		if (LOWER_BYTE(*p) == 'e') {      \
-			*_type = PAR_CNONCE;      \
-                        p++;                      \
-			goto end;                 \
-		}                                 \
-	}                                         \
-        goto other;
-
-
-#define opaq_CASE                                 \
-        p += 4;                                   \
-        if (LOWER_BYTE(*p) == 'u') {              \
-		p++;                              \
-		if (LOWER_BYTE(*p) == 'e') {      \
-			*_type = PAR_OPAQUE;      \
-                        p++;                      \
-			goto end;                 \
-		}                                 \
-	}                                         \
-        goto other;
-
-
-#define rith_CASE                                 \
-        switch(LOWER_DWORD(val)) {                \
-	case _rith_:                              \
-		p += 4;                           \
-		if (LOWER_BYTE(*p) == 'm') {      \
-			*_type = PAR_ALGORITHM;   \
-                        p++;                      \
-			goto end;                 \
-		}                                 \
-		goto other;                       \
+	switch(ksr_ascii_lower_u32(val)) { \
+		case _onse_:                   \
+			*_type = PAR_RESPONSE;     \
+			p += 4;                    \
+			goto end;                  \
 	}
 
 
-#define algo_CASE         \
-        p += 4;           \
-        val = READ(p);    \
-        rith_CASE;        \
-        goto other
+#define resp_CASE            \
+	p += 4;                  \
+	if(!HAVE_CHARS(p, 4)) {  \
+		goto other;          \
+	}                        \
+	val = ksr_read_u32le(p); \
+	onse_CASE;               \
+	goto other;
 
 
-#define FIRST_QUATERNIONS       \
-        case _user_: user_CASE; \
-        case _real_: real_CASE; \
-        case _nonc_: nonc_CASE; \
-        case _resp_: resp_CASE; \
-        case _cnon_: cnon_CASE; \
-        case _opaq_: opaq_CASE; \
-        case _algo_: algo_CASE;
+#define cnon_CASE                                          \
+	p += 4;                                                \
+	if(!HAVE_CHARS(p, 2)) {                                \
+		goto other;                                        \
+	}                                                      \
+	if(ksr_ascii_lower_u8((unsigned char)*p) == 'c') {     \
+		p++;                                               \
+		if(ksr_ascii_lower_u8((unsigned char)*p) == 'e') { \
+			*_type = PAR_CNONCE;                           \
+			p++;                                           \
+			goto end;                                      \
+		}                                                  \
+	}                                                      \
+	goto other;
 
 
+#define opaq_CASE                                          \
+	p += 4;                                                \
+	if(!HAVE_CHARS(p, 2)) {                                \
+		goto other;                                        \
+	}                                                      \
+	if(ksr_ascii_lower_u8((unsigned char)*p) == 'u') {     \
+		p++;                                               \
+		if(ksr_ascii_lower_u8((unsigned char)*p) == 'e') { \
+			*_type = PAR_OPAQUE;                           \
+			p++;                                           \
+			goto end;                                      \
+		}                                                  \
+	}                                                      \
+	goto other;
 
 
-int parse_param_name(str* _s, dig_par_t* _type)
+#define rith_CASE                                              \
+	switch(ksr_ascii_lower_u32(val)) {                         \
+		case _rith_:                                           \
+			p += 4;                                            \
+			if(!HAVE_CHARS(p, 1)) {                            \
+				goto other;                                    \
+			}                                                  \
+			if(ksr_ascii_lower_u8((unsigned char)*p) == 'm') { \
+				*_type = PAR_ALGORITHM;                        \
+				p++;                                           \
+				goto end;                                      \
+			}                                                  \
+			goto other;                                        \
+	}
+
+
+#define algo_CASE            \
+	p += 4;                  \
+	if(!HAVE_CHARS(p, 4)) {  \
+		goto other;          \
+	}                        \
+	val = ksr_read_u32le(p); \
+	rith_CASE;               \
+	goto other
+
+
+#define FIRST_QUATERNIONS \
+	case _user_:          \
+		user_CASE;        \
+	case _real_:          \
+		real_CASE;        \
+	case _nonc_:          \
+		nonc_CASE;        \
+	case _resp_:          \
+		resp_CASE;        \
+	case _cnon_:          \
+		cnon_CASE;        \
+	case _opaq_:          \
+		opaq_CASE;        \
+	case _algo_:          \
+		algo_CASE;
+
+
+int parse_param_name(str *_s, dig_par_t *_type)
 {
-        register char* p;
-        register int val;
-	char* end;
-	
+	register char *p;
+	register unsigned int val;
+	char *end;
+
 	end = _s->s + _s->len;
-	
+
 	p = _s->s;
-	val = READ(p);
-	
-	if (_s->len < 4) {
+	if(_s->len < 4) {
 		goto other;
 	}
-	
-        switch(LOWER_DWORD(val)) {
-	FIRST_QUATERNIONS;
-	default:
-		PARSE_SHORT;
-		goto other;
-        }
+	val = ksr_read_u32le(p);
 
- end:
+	switch(ksr_ascii_lower_u32(val)) {
+		FIRST_QUATERNIONS;
+		default:
+			PARSE_SHORT;
+			goto other;
+	}
+
+end:
 	_s->len -= p - _s->s;
 	_s->s = p;
 
 	trim_leading(_s);
-	if (_s->s[0] == '=') {
+	if(_s->len > 0 && _s->s[0] == '=') {
 		return 0;
 	}
-	
- other:
+
+other:
+	if(unlikely(p > end)) {
+		return -1; /* Parse error */
+	}
 	p = q_memchr(p, '=', end - p);
-	if (!p) {
+	if(!p) {
 		return -1; /* Parse error */
 	} else {
 		*_type = PAR_OTHER;

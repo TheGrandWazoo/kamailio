@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -95,26 +97,35 @@ static cmd_export_t cmds[] = {
 	{ "ws_handle_handshake", (cmd_function)w_ws_handle_handshake,
 	  0, 0, 0,
 	  ANY_ROUTE },
+	{ "ws_connect", (cmd_function)w_ws_connect,
+	  5, fixup_sissi, fixup_free_sissi,
+	  ANY_ROUTE },
+	{ "ws_send", (cmd_function)w_ws_send,
+	  5, fixup_sissi, fixup_free_sissi,
+	  ANY_ROUTE },
+	{ "ws_connect_url", (cmd_function)w_ws_connect_url,
+	  2, fixup_spve_spve, fixup_free_spve_spve,
+	  ANY_ROUTE },
 
 	{ 0, 0, 0, 0, 0, 0 }
 };
 
 static param_export_t params[] = {
 	/* ws_frame.c */
-	{ "keepalive_mechanism",	INT_PARAM, &ws_keepalive_mechanism },
-	{ "keepalive_timeout",		INT_PARAM, &ws_keepalive_timeout },
+	{ "keepalive_mechanism",	PARAM_INT, &ws_keepalive_mechanism },
+	{ "keepalive_timeout",		PARAM_INT, &ws_keepalive_timeout },
 	{ "ping_application_data",	PARAM_STR, &ws_ping_application_data },
 
 	/* ws_handshake.c */
-	{ "sub_protocols",		INT_PARAM, &ws_sub_protocols },
-	{ "cors_mode",			INT_PARAM, &ws_cors_mode },
+	{ "sub_protocols",		PARAM_INT, &ws_sub_protocols },
+	{ "cors_mode",			PARAM_INT, &ws_cors_mode },
 
 	/* ws_mod.c */
-	{ "keepalive_interval",		INT_PARAM, &ws_keepalive_interval },
-	{ "keepalive_processes",	INT_PARAM, &ws_keepalive_processes },
+	{ "keepalive_interval",		PARAM_INT, &ws_keepalive_interval },
+	{ "keepalive_processes",	PARAM_INT, &ws_keepalive_processes },
 
-	{ "timer_interval",		INT_PARAM, &ws_timer_interval },
-	{ "rm_delay_interval",	INT_PARAM, &ws_rm_delay_interval },
+	{ "timer_interval",		PARAM_INT, &ws_timer_interval },
+	{ "rm_delay_interval",	PARAM_INT, &ws_rm_delay_interval },
 
 	{ "verbose_list",		PARAM_INT, &ws_verbose_list },
 	{ "event_callback",		PARAM_STR, &ws_event_callback},
@@ -194,7 +205,13 @@ static int mod_init(void)
 		goto error;
 	}
 
-	if(register_module_stats(exports.name, stats) != 0) {
+	if(sr_event_register_cb(SREV_TCP_WS_HANDSHAKE, ws_handle_handshake_response)
+			!= 0) {
+		LM_ERR("registering WebSocket handshake call-back\n");
+		goto error;
+	}
+
+	if(register_module_stats("websocket", stats) != 0) {
 		LM_ERR("registering core statistics\n");
 		goto error;
 	}
@@ -301,20 +318,19 @@ static int child_init(int rank)
 		if(ws_keepalive_mechanism != KEEPALIVE_MECHANISM_NONE) {
 			for(i = 0; i < ws_keepalive_processes; i++) {
 				if(fork_sync_timer(PROC_TIMER, "WEBSOCKET KEEPALIVE", 1,
-						   ws_keepalive, (void*)(long)i, ws_keepalive_interval)
+						   ws_keepalive, (void *)(long)i, ws_keepalive_interval)
 						< 0) {
 					LM_ERR("starting keepalive process\n");
 					return -1;
 				}
 			}
 		}
-		if(fork_sync_timer(PROC_TIMER, "WEBSOCKET TIMER", 1,
-			   ws_timer, NULL, ws_timer_interval)
-					< 0) {
-				LM_ERR("starting timer process\n");
-				return -1;
+		if(fork_sync_timer(PROC_TIMER, "WEBSOCKET TIMER", 1, ws_timer, NULL,
+				   ws_timer_interval)
+				< 0) {
+			LM_ERR("starting timer process\n");
+			return -1;
 		}
-
 	}
 
 	return 0;
@@ -378,6 +394,11 @@ static const char* ws_rpc_disable_doc[2] = {
 	0
 };
 
+static const char* ws_rpc_connect_doc[2] = {
+	"Initiate an outbound websocket connection: host port path subprotocol tls(0|1)",
+	0
+};
+
 rpc_export_t ws_rpc_cmds[] = {
 	{"ws.dump", ws_rpc_dump, ws_rpc_dump_doc, 0},
 	{"ws.close", ws_rpc_close, ws_rpc_close_doc, 0},
@@ -385,6 +406,7 @@ rpc_export_t ws_rpc_cmds[] = {
 	{"ws.pong", ws_rpc_pong, ws_rpc_pong_doc, 0},
 	{"ws.enable", ws_rpc_enable, ws_rpc_enable_doc, 0},
 	{"ws.disable", ws_rpc_disable, ws_rpc_disable_doc, 0},
+	{"ws.connect", ws_rpc_connect, ws_rpc_connect_doc, 0},
 	{0, 0, 0, 0}
 };
 /* clang-format on */
@@ -425,6 +447,16 @@ static sr_kemi_t sr_kemi_websocket_exports[] = {
 		SR_KEMIP_INT, ws_close3,
 		{ SR_KEMIP_INT, SR_KEMIP_STR, SR_KEMIP_INT,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("websocket"), str_init("connect"),
+		SR_KEMIP_INT, ws_connect,
+		{ SR_KEMIP_STR, SR_KEMIP_INT, SR_KEMIP_STR,
+			SR_KEMIP_STR, SR_KEMIP_INT, SR_KEMIP_NONE }
+	},
+	{ str_init("websocket"), str_init("send"),
+		SR_KEMIP_INT, ws_send,
+		{ SR_KEMIP_STR, SR_KEMIP_INT, SR_KEMIP_STR,
+			SR_KEMIP_STR, SR_KEMIP_INT, SR_KEMIP_NONE }
 	},
 
 	{ {0, 0}, {0, 0}, 0, NULL, { 0, 0, 0, 0, 0, 0 } }

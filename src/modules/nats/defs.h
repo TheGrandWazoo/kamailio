@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -27,6 +29,7 @@
 
 #include <nats/nats.h>
 #include <uv.h>
+#include "../../core/str.h"
 
 #define NATS_DEFAULT_URL "nats://localhost:4222"
 #define NATS_MAX_SERVERS 10
@@ -46,7 +49,6 @@ typedef struct _nats_evroutes
 	int connected;
 	int disconnected;
 } nats_evroutes_t;
-static nats_evroutes_t _nats_rts;
 
 typedef struct _init_nats_sub
 {
@@ -64,6 +66,8 @@ typedef struct _init_nats_server
 typedef struct _nats_on_message
 {
 	int rt;
+	char *_evname;
+	str evname;
 } nats_on_message, *nats_on_message_ptr;
 
 struct nats_consumer_worker

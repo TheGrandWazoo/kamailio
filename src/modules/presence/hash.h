@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -15,15 +17,15 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
- * along with this program; if not, write to the Free Software 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
 
 /*! \file
  * \brief Kamailio presence module :: Hash tables
- * \ingroup presence 
+ * \ingroup presence
  */
 
 
@@ -79,6 +81,9 @@ struct subscription *search_shtable(shtable_t htable, str callid, str to_tag,
 int insert_shtable(
 		shtable_t htable, unsigned int hash_code, struct subscription *subs);
 
+int replace_shtable(
+		shtable_t htable, unsigned int hash_code, struct subscription *subs);
+
 int delete_shtable(
 		shtable_t htable, unsigned int hash_code, struct subscription *subs);
 
@@ -98,6 +103,9 @@ typedef struct subscription *(*search_shtable_t)(shtable_t htable, str callid,
 		str to_tag, str from_tag, unsigned int hash_code);
 
 typedef int (*insert_shtable_t)(
+		shtable_t htable, unsigned int hash_code, struct subscription *subs);
+
+typedef int (*replace_shtable_t)(
 		shtable_t htable, unsigned int hash_code, struct subscription *subs);
 
 typedef int (*delete_shtable_t)(
@@ -140,9 +148,10 @@ int delete_phtable(str *pres_uri, int event);
 
 void destroy_phtable(void);
 
-int delete_db_subs(str* to_tag, str* from_tag, str* callid);
+int delete_db_subs(str *to_tag, str *from_tag, str *callid);
 
-typedef struct ps_presentity {
+typedef struct ps_presentity
+{
 	uint32_t bsize;
 	uint32_t hashid;
 	str user;
@@ -159,12 +168,14 @@ typedef struct ps_presentity {
 	struct ps_presentity *prev;
 } ps_presentity_t;
 
-typedef struct ps_pslot {
+typedef struct ps_pslot
+{
 	ps_presentity_t *plist;
 	gen_lock_t lock;
 } ps_pslot_t;
 
-typedef struct ps_ptable {
+typedef struct ps_ptable
+{
 	int ssize;
 	ps_pslot_t *slots;
 } ps_ptable_t;
@@ -180,7 +191,8 @@ int ps_ptable_replace(ps_presentity_t *ptm, ps_presentity_t *pt);
 int ps_ptable_update(ps_presentity_t *ptm, ps_presentity_t *pt);
 int ps_ptable_remove(ps_presentity_t *pt);
 ps_presentity_t *ps_ptable_get_list(str *user, str *domain);
-ps_presentity_t *ps_ptable_get_item(str *user, str *domain, str *event, str *etag);
+ps_presentity_t *ps_ptable_get_item(
+		str *user, str *domain, str *event, str *etag);
 ps_presentity_t *ps_ptable_search(ps_presentity_t *ptm, int mmode, int rmode);
 ps_presentity_t *ps_ptable_get_expired(int eval);
 ps_ptable_t *ps_ptable_get(void);

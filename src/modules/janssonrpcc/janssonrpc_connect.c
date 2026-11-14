@@ -28,6 +28,10 @@
 #include <fcntl.h>
 #include <event.h>
 #include <netinet/tcp.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netdb.h>
 
 #include "../../core/sr_module.h"
 #include "../../core/route.h"
@@ -48,11 +52,11 @@
 unsigned int jsonrpc_keep_alive;
 
 void wait_server_backoff(unsigned int timeout /* seconds */,
-		jsonrpc_server_t* server, bool delay);
+		jsonrpc_server_t *server, bool delay);
 
-void bev_connect(jsonrpc_server_t* server);
+void bev_connect(jsonrpc_server_t *server);
 
-void bev_disconnect(struct bufferevent* bev)
+void bev_disconnect(struct bufferevent *bev)
 {
 	// close bufferevent
 	if(bev != NULL) {
@@ -70,7 +74,7 @@ void bev_disconnect(struct bufferevent* bev)
 /* This will immediately close a server socket and clean out any pending
  * requests that are waiting on that socket.
  * */
-void force_disconnect(jsonrpc_server_t* server)
+void force_disconnect(jsonrpc_server_t *server)
 {
 	if(!server) {
 		ERR("Trying to disconnect a NULL server.\n");
@@ -82,24 +86,24 @@ void force_disconnect(jsonrpc_server_t* server)
 	server->buffer = NULL;
 
 	server->status = JSONRPC_SERVER_DISCONNECTED;
-	if (server->keep_alive_socket_fd >= 0) {
+	if(server->socket_fd >= 0) {
 		INFO("closing socket");
-		close(server->keep_alive_socket_fd);
-		server->keep_alive_socket_fd = -1;
+		close(server->socket_fd);
+		server->socket_fd = -1;
 	}
 
 	// close bufferevent
 	bev_disconnect(server->bev);
-	INFO("Disconnected from server %.*s:%d for conn %.*s.\n",
-			STR(server->addr), server->port, STR(server->conn));
+	INFO("Disconnected from server %.*s:%d for conn %.*s.\n", STR(server->addr),
+			server->port, STR(server->conn));
 
 
 	/* clean out requests */
-	jsonrpc_request_t* req = NULL;
-	jsonrpc_request_t* next = NULL;
+	jsonrpc_request_t *req = NULL;
+	jsonrpc_request_t *next = NULL;
 	int key = 0;
-	for (key=0; key < JSONRPC_DEFAULT_HTABLE_SIZE; key++) {
-		for (req = request_table[key]; req != NULL; req = next) {
+	for(key = 0; key < JSONRPC_DEFAULT_HTABLE_SIZE; key++) {
+		for(req = request_table[key]; req != NULL; req = next) {
 			/* fail_request frees req so need to store
 			   next_req before call */
 			next = req->next;
@@ -111,21 +115,22 @@ void force_disconnect(jsonrpc_server_t* server)
 	}
 }
 
-typedef struct server_backoff_args {
-	struct event* ev;
-	jsonrpc_server_t* server;
+typedef struct server_backoff_args
+{
+	struct event *ev;
+	jsonrpc_server_t *server;
 	unsigned int timeout;
 } server_backoff_args_t;
 
 void server_backoff_cb(int fd, short event, void *arg)
 {
 	unsigned int timeout;
-	server_backoff_args_t* a;
+	server_backoff_args_t *a;
 
 	if(!arg)
 		return;
 
-	a = (server_backoff_args_t*)arg;
+	a = (server_backoff_args_t *)arg;
 
 	timeout = a->timeout;
 
@@ -148,7 +153,7 @@ void server_backoff_cb(int fd, short event, void *arg)
 }
 
 void wait_server_backoff(unsigned int timeout /* seconds */,
-		jsonrpc_server_t* server, bool delay)
+		jsonrpc_server_t *server, bool delay)
 {
 	if(!server) {
 		ERR("Trying to close/reconnect a NULL server\n");
@@ -156,7 +161,7 @@ void wait_server_backoff(unsigned int timeout /* seconds */,
 	}
 
 	if(delay == false) {
-		if (requests_using_server(server) <= 0) {
+		if(requests_using_server(server) <= 0) {
 			if(server->status == JSONRPC_SERVER_RECONNECTING) {
 				bev_connect(server);
 			} else if(server->status == JSONRPC_SERVER_CLOSING) {
@@ -168,18 +173,19 @@ void wait_server_backoff(unsigned int timeout /* seconds */,
 
 	const struct timeval tv = {timeout, 0};
 
-	server_backoff_args_t* args = pkg_malloc(sizeof(server_backoff_args_t));
+	server_backoff_args_t *args = pkg_malloc(sizeof(server_backoff_args_t));
 	CHECK_MALLOC_VOID(args);
 	memset(args, 0, sizeof(server_backoff_args_t));
 
-	args->ev = evtimer_new(global_ev_base, server_backoff_cb, (void*)args);
+	args->ev = evtimer_new(global_ev_base, server_backoff_cb, (void *)args);
 	CHECK_MALLOC_GOTO(args->ev, error);
 
 	args->server = server;
 	args->timeout = timeout;
 
-	if(evtimer_add(args->ev, &tv)<0) {
-		ERR("event_add failed while setting request timer (%s).", strerror(errno));
+	if(evtimer_add(args->ev, &tv) < 0) {
+		ERR("event_add failed while setting request timer (%s).",
+				strerror(errno));
 		goto error;
 	}
 
@@ -195,16 +201,16 @@ error:
 		pkg_free(args);
 	}
 
-	if (server->status == JSONRPC_SERVER_CLOSING) {
+	if(server->status == JSONRPC_SERVER_CLOSING) {
 		ERR("Closing server now...\n");
 		close_server(server);
-	} else if (server->status == JSONRPC_SERVER_RECONNECTING) {
+	} else if(server->status == JSONRPC_SERVER_RECONNECTING) {
 		ERR("Reconnecting server now...\n");
 		force_reconnect(server);
 	}
 }
 
-void wait_close(jsonrpc_server_t* server)
+void wait_close(jsonrpc_server_t *server)
 {
 	if(!server) {
 		ERR("Trying to close null server.\n");
@@ -215,7 +221,7 @@ void wait_close(jsonrpc_server_t* server)
 	wait_server_backoff(1, server, false);
 }
 
-void wait_reconnect(jsonrpc_server_t* server)
+void wait_reconnect(jsonrpc_server_t *server)
 {
 	if(!server) {
 		ERR("Trying to reconnect null server.\n");
@@ -226,69 +232,67 @@ void wait_reconnect(jsonrpc_server_t* server)
 	wait_server_backoff(1, server, false);
 }
 
-void connect_servers(jsonrpc_server_group_t** group)
+void connect_servers(jsonrpc_server_group_t **group)
 {
 	INIT_SERVER_LOOP
 	FOREACH_SERVER_IN(group)
-		server = wgroup->server;
-		if(server->status != JSONRPC_SERVER_FAILURE
-				&& server->status != JSONRPC_SERVER_RECONNECTING)
-		{
-			bev_connect(server);
-		}
+	server = wgroup->server;
+	if(server->status != JSONRPC_SERVER_FAILURE
+			&& server->status != JSONRPC_SERVER_RECONNECTING) {
+		bev_connect(server);
+	}
 	ENDFOR
 }
 
-void force_reconnect(jsonrpc_server_t* server)
+void force_reconnect(jsonrpc_server_t *server)
 {
-	INFO("Reconnecting to server %.*s:%d for conn %.*s.\n",
-			STR(server->addr), server->port, STR(server->conn));
+	INFO("Reconnecting to server %.*s:%d for conn %.*s.\n", STR(server->addr),
+			server->port, STR(server->conn));
 	force_disconnect(server);
 	bev_connect(server);
 }
 
 /* helper for bev_connect_cb() and bev_connect() */
-void connect_failed(jsonrpc_server_t* server)
+void connect_failed(jsonrpc_server_t *server)
 {
 	bev_disconnect(server->bev);
 
 	server->status = JSONRPC_SERVER_RECONNECTING;
 	// close socket
-	if (server->keep_alive_socket_fd >= 0) {
+	if(server->socket_fd >= 0) {
 		INFO("closing socket");
-		close(server->keep_alive_socket_fd);
-		server->keep_alive_socket_fd = -1;
+		close(server->socket_fd);
+		server->socket_fd = -1;
 	}
 	wait_server_backoff(JSONRPC_RECONNECT_INTERVAL, server, true);
 }
 
-void bev_connect_cb(struct bufferevent* bev, short events, void* arg)
+void bev_connect_cb(struct bufferevent *bev, short events, void *arg)
 {
-	jsonrpc_server_t* server = (jsonrpc_server_t*)arg;
+	jsonrpc_server_t *server = (jsonrpc_server_t *)arg;
 	if(!arg) {
 		ERR("Trying to connect null server\n");
 		return;
 	}
 
-	if (events & (BEV_EVENT_ERROR|BEV_EVENT_EOF)) {
+	if(events & (BEV_EVENT_ERROR | BEV_EVENT_EOF)) {
 		WARN("Connection error for %.*s:%d\n", STR(server->addr), server->port);
-		if (events & BEV_EVENT_ERROR) {
+		if(events & BEV_EVENT_ERROR) {
 			int err = bufferevent_socket_get_dns_error(bev);
 			if(err) {
-				ERR("DNS error for %.*s: %s\n",
-					STR(server->addr), evutil_gai_strerror(err));
+				ERR("DNS error for %.*s: %s\n", STR(server->addr),
+						evutil_gai_strerror(err));
 			}
 		}
 		goto failed;
 	} else if(events & BEV_EVENT_CONNECTED) {
 
-		if (server->status == JSONRPC_SERVER_CONNECTED) {
+		if(server->status == JSONRPC_SERVER_CONNECTED) {
 			return;
 		}
 
 		server->status = JSONRPC_SERVER_CONNECTED;
-		INFO("Connected to host %.*s:%d\n",
-				STR(server->addr), server->port);
+		INFO("Connected to host %.*s:%d\n", STR(server->addr), server->port);
 	}
 
 	return;
@@ -297,27 +301,35 @@ failed:
 	connect_failed(server);
 }
 
-int fd_is_valid(int fd) {
-    return fcntl(fd, F_GETFD) != -1 || errno != EBADF;
+int fd_is_valid(int fd)
+{
+	return fcntl(fd, F_GETFD) != -1 || errno != EBADF;
 }
 
-int set_linger(int fd, int onoff, int linger) {
-	struct linger l = { .l_linger = linger, .l_onoff = onoff};
+int set_linger(int fd, int onoff, int linger)
+{
+	struct linger l = {.l_linger = linger, .l_onoff = onoff};
 	int res = setsockopt(fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
 	assert(res == 0);
 	return res;
 }
 
 
-int set_keepalive(int fd, int keepalive, int cnt, int idle, int intvl) {
-	int res = setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+int set_keepalive(int fd, int keepalive, int cnt, int idle, int intvl)
+{
+	int res = setsockopt(
+			fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
 	assert(res == 0);
 
 	res = setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &idle, sizeof(idle));
 	assert(res == 0);
 
+#ifdef HAVE_TCP_KEEPIDLE
 	res = setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
 	assert(res == 0);
+#else
+	LM_INFO("TCP_KEEPIDLE option not available - ignoring\n");
+#endif
 
 	res = setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
 	assert(res == 0);
@@ -325,65 +337,96 @@ int set_keepalive(int fd, int keepalive, int cnt, int idle, int intvl) {
 	return res;
 }
 
-void bev_connect(jsonrpc_server_t* server)
+int set_md5_password(int fd, str passwd, str addr_)
+{
+	struct tcp_md5sig md5sig;
+	struct addrinfo hints, *res = NULL;
+	struct sockaddr_in addr;
+	int ret;
+
+	memset(&md5sig, 0, sizeof(md5sig));
+	memset(&addr, 0, sizeof(addr));
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	ret = getaddrinfo(addr_.s, NULL, &hints, &res);
+	assert(ret == 0);
+	addr = *(struct sockaddr_in *)(res->ai_addr);
+
+	memcpy(&md5sig.tcpm_addr, &addr, sizeof(addr));
+
+	md5sig.tcpm_keylen = passwd.len;
+	if(md5sig.tcpm_keylen > TCP_MD5SIG_MAXKEYLEN) {
+		ERR("Password too long\n");
+		return -1;
+	}
+
+	memcpy(md5sig.tcpm_key, passwd.s, md5sig.tcpm_keylen);
+
+	ret = setsockopt(fd, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof(md5sig));
+	assert(ret == 0);
+
+	freeaddrinfo(res);
+
+	return 0;
+}
+
+void bev_connect(jsonrpc_server_t *server)
 {
 	if(!server) {
 		ERR("Trying to connect null server\n");
 		return;
 	}
 	int fd = -1;
-	if (jsonrpc_keep_alive > 0) {
-		if (server->keep_alive_socket_fd > 0) {
-			fd = server->keep_alive_socket_fd;
+	if(jsonrpc_keep_alive > 0 || server->md5_password.s) {
+		if(server->socket_fd > 0) {
+			fd = server->socket_fd;
 		} else {
 			INFO("setting up socket");
 			fd = socket(AF_INET, SOCK_STREAM, 0);
-			if (fd <= 0) {
-				server->keep_alive_socket_fd = -1;
-				ERR("could not setup socket");
+			if(fd < 0) {
+				server->socket_fd = -1;
+				ERR("could not set up socket");
 			} else {
-				server->keep_alive_socket_fd = fd; // track fd to close later
+				server->socket_fd = fd; // track fd to close later
 			}
 		}
-		if (!fd_is_valid(fd)) { // make sure socket is valid
+		if(!fd_is_valid(fd)) { // make sure socket is valid
+			if(fd >= 0) {
+				close(fd);
+			}
 			fd = -1;
-			server->keep_alive_socket_fd = -1;
+			server->socket_fd = -1;
 		}
 	}
 
-	INFO("Connecting to server %.*s:%d for conn %.*s.\n",
-			STR(server->addr), server->port, STR(server->conn));
+	INFO("Connecting to server %.*s:%d for conn %.*s.\n", STR(server->addr),
+			server->port, STR(server->conn));
 
-	if (fd > 0) {
+	if(fd > 0) {
 		set_linger(fd, 1, 0);
-		set_keepalive(fd, 1, 1, jsonrpc_keep_alive, jsonrpc_keep_alive);
+		if(jsonrpc_keep_alive > 0)
+			set_keepalive(fd, 1, 1, jsonrpc_keep_alive, jsonrpc_keep_alive);
+		if(server->md5_password.s)
+			set_md5_password(fd, server->md5_password, server->addr);
 	}
 
-	server->bev = bufferevent_socket_new(
-			global_ev_base,
-			fd,
-			BEV_OPT_CLOSE_ON_FREE);
-	if (!(server->bev)) {
-		ERR("Could not create bufferevent for  %.*s:%d\n", STR(server->addr), server->port);
+	server->bev =
+			bufferevent_socket_new(global_ev_base, fd, BEV_OPT_CLOSE_ON_FREE);
+	if(!(server->bev)) {
+		ERR("Could not create bufferevent for  %.*s:%d\n", STR(server->addr),
+				server->port);
 		connect_failed(server);
 		return;
 	}
 
-	bufferevent_setcb(
-			server->bev,
-			bev_read_cb,
-			NULL,
-			bev_connect_cb,
-			server);
-	bufferevent_enable(server->bev, EV_READ|EV_WRITE);
-	if(bufferevent_socket_connect_hostname(
-			server->bev,
-			global_evdns_base,
-			AF_UNSPEC,
-			server->addr.s,
-			server->port)<0) {
+	bufferevent_setcb(server->bev, bev_read_cb, NULL, bev_connect_cb, server);
+	bufferevent_enable(server->bev, EV_READ | EV_WRITE);
+	if(bufferevent_socket_connect_hostname(server->bev, global_evdns_base,
+			   AF_UNSPEC, server->addr.s, server->port)
+			< 0) {
 		WARN("Failed to connect to %.*s:%d\n", STR(server->addr), server->port);
 		connect_failed(server);
 	}
 }
-

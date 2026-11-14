@@ -4,6 +4,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -28,9 +30,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <sys/types.h>
+#include <time.h>
 #include <regex.h>
 
+#include "../../core/basex.h"
+#include "../../core/crypto/sha256.h"
 #include "../../core/sr_module.h"
 #include "../../core/ut.h"
 #include "../../core/error.h"
@@ -47,167 +53,169 @@
 #include "rr_cb.h"
 #include "api.h"
 
-#ifdef ENABLE_USER_CHECK
-#include <string.h>
-#include "../../core/str.h"
-str i_user = {0,0};
-#endif
-
-int append_fromtag = 1;		/*!< append from tag by default */
-int enable_double_rr = 1;	/*!< enable using of 2 RR by default */
-int enable_full_lr = 0;		/*!< compatibilty mode disabled by default */
-int add_username = 0;	 	/*!< do not add username by default */
+int append_fromtag = 1;		  /*!< append from tag by default */
+int enable_double_rr = 1;	  /*!< enable using of 2 RR by default */
+int enable_full_lr = 0;		  /*!< compatibilty mode disabled by default */
+int add_username = 0;		  /*!< do not add username by default */
 int rr_force_send_socket = 0; /*!< control if socket is forced by rr */
 int enable_socket_mismatch_warning = 1; /*!< enable socket mismatch warning */
 static str custom_user_spec = {NULL, 0};
 pv_spec_t custom_user_avp;
-int rr_ignore_sips = 0; /*!< ignore sips schema when building record-route */
+int rr_ignore_sips = 0;	  /*!< ignore sips schema when building record-route */
 int rr_sockname_mode = 0; /*!< add socket name to R-R header */
+int rr_loose_route_mode = 0; /*!< modes for loose_route() */
+uint16_t rr_cookie_flags = 0; /*!< two-byte flags field encoded in R-R cookie */
 
 ob_api_t rr_obb;
 
 MODULE_VERSION
 
-static int  mod_init(void);static void mod_destroy(void);
+static int mod_init(void);
+static void mod_destroy(void);
 /* fixup functions */
-static int direction_fixup(void** param, int param_no);
-static int it_list_fixup(void** param, int param_no);
+static int direction_fixup(void **param, int param_no);
+static int it_list_fixup(void **param, int param_no);
+static int it_list_fixup_free(void **param, int param_no);
 /* wrapper functions */
 static int w_loose_route(struct sip_msg *, char *, char *);
 static int w_loose_route_preloaded(struct sip_msg *, char *, char *);
 static int w_loose_route_mode(struct sip_msg *, char *, char *);
 static int w_record_route(struct sip_msg *, char *, char *);
-static int w_record_route_preset(struct sip_msg *,char *, char *);
+static int w_record_route_preset(struct sip_msg *, char *, char *);
 static int w_record_route_advertised_address(struct sip_msg *, char *, char *);
-static int w_add_rr_param(struct sip_msg *,char *, char *);
-static int w_check_route_param(struct sip_msg *,char *, char *);
-static int w_is_direction(struct sip_msg *,char *, char *);
-static int w_remove_record_route(sip_msg_t*, char*, char*);
+static int w_add_rr_param(struct sip_msg *, char *, char *);
+static int w_rr_cookie_flinit(struct sip_msg *, char *, char *);
+static int w_rr_cookie_flset(struct sip_msg *, char *, char *);
+static int w_rr_cookie_flreset(struct sip_msg *, char *, char *);
+static int w_rr_cookie_flisset(struct sip_msg *, char *, char *);
+static int w_rr_cookie_flfetch(struct sip_msg *, char *, char *);
+static int w_rr_cookie_add(struct sip_msg *, char *, char *);
+static int w_rr_cookie_check(struct sip_msg *, char *, char *, char *);
+static int w_check_route_param(struct sip_msg *, char *, char *);
+static int w_is_direction(struct sip_msg *, char *, char *);
+static int w_remove_record_route(sip_msg_t *, char *, char *);
 static int w_rr_next_hop_route(sip_msg_t *, char *, char *);
 /* PV functions */
 static int pv_get_route_uri_f(struct sip_msg *, pv_param_t *, pv_value_t *);
-static int pv_get_from_tag_initial(sip_msg_t *msg, pv_param_t *param,
-		pv_value_t *res);
-static int pv_get_to_tag_initial(sip_msg_t *msg, pv_param_t *param,
-		pv_value_t *res);
+static int pv_get_from_tag_initial(
+		sip_msg_t *msg, pv_param_t *param, pv_value_t *res);
+static int pv_get_to_tag_initial(
+		sip_msg_t *msg, pv_param_t *param, pv_value_t *res);
 static int pv_get_rdir(sip_msg_t *msg, pv_param_t *param, pv_value_t *res);
 static int pv_parse_rdir_name(pv_spec_p sp, str *in);
 
+/* clang-format off */
 /*!
  * \brief Exported functions
  */
 static cmd_export_t cmds[] = {
-	{"loose_route",          (cmd_function)w_loose_route,		0, 0, 0,
-			REQUEST_ROUTE},
-	{"loose_route_preloaded", (cmd_function)w_loose_route_preloaded,0, 0, 0,
-			REQUEST_ROUTE},
-	{"loose_route_mode", (cmd_function)w_loose_route_mode, 1, fixup_igp_null, fixup_free_igp_null,
-			REQUEST_ROUTE},
-	{"record_route",         (cmd_function)w_record_route,		0, 0, 0,
-			REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
-	{"record_route",         (cmd_function)w_record_route, 		1, it_list_fixup, 0,
-			REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
-	{"record_route_preset",  (cmd_function)w_record_route_preset, 1, it_list_fixup, 0,
-			REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
-	{"record_route_preset",  (cmd_function)w_record_route_preset, 2, it_list_fixup, 0,
-			REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
-	{"record_route_advertised_address",  (cmd_function)w_record_route_advertised_address, 1, it_list_fixup, 0,
-			REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
-	{"add_rr_param",         (cmd_function)w_add_rr_param,	1, it_list_fixup, 0,
-			REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
-	{"check_route_param",    (cmd_function)w_check_route_param, 1, fixup_regexp_null, fixup_free_regexp_null,
-			REQUEST_ROUTE},
-	{"is_direction",         (cmd_function)w_is_direction, 		1, direction_fixup, 0,
-			REQUEST_ROUTE},
-	{"remove_record_route",  w_remove_record_route, 0, 0, 0,
-			REQUEST_ROUTE|FAILURE_ROUTE},
-	{"rr_next_hop_route",    (cmd_function)w_rr_next_hop_route,		0, 0, 0,
-			ANY_ROUTE},
-	{"load_rr",              (cmd_function)load_rr, 				0, 0, 0, 0},
+	{"loose_route", (cmd_function)w_loose_route, 0, 0, 0, REQUEST_ROUTE},
+	{"loose_route_preloaded", (cmd_function)w_loose_route_preloaded, 0, 0, 0, REQUEST_ROUTE},
+	{"loose_route_mode", (cmd_function)w_loose_route_mode, 1,
+		fixup_igp_null, fixup_free_igp_null, REQUEST_ROUTE},
+	{"record_route", (cmd_function)w_record_route, 0,
+		0, 0,	REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"record_route", (cmd_function)w_record_route, 1,
+		it_list_fixup, it_list_fixup_free, REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"record_route_preset", (cmd_function)w_record_route_preset, 1,
+		it_list_fixup, it_list_fixup_free, REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"record_route_preset", (cmd_function)w_record_route_preset, 2,
+		it_list_fixup, it_list_fixup_free, REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"record_route_advertised_address",	(cmd_function)w_record_route_advertised_address, 1,
+		it_list_fixup, it_list_fixup_free, REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"add_rr_param", (cmd_function)w_add_rr_param, 1,
+		it_list_fixup, it_list_fixup_free, REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"rr_cookie_flinit", (cmd_function)w_rr_cookie_flinit, 1,
+		fixup_igp_null, fixup_free_igp_null, ANY_ROUTE},
+	{"rr_cookie_flset", (cmd_function)w_rr_cookie_flset, 1,
+		fixup_igp_null, fixup_free_igp_null, ANY_ROUTE},
+	{"rr_cookie_flreset", (cmd_function)w_rr_cookie_flreset, 1,
+		fixup_igp_null, fixup_free_igp_null, ANY_ROUTE},
+	{"rr_cookie_flisset", (cmd_function)w_rr_cookie_flisset, 1,
+		fixup_igp_null, fixup_free_igp_null, ANY_ROUTE},
+	{"rr_cookie_flfetch", (cmd_function)w_rr_cookie_flfetch, 1,
+		fixup_spve_null, fixup_free_spve_null, REQUEST_ROUTE},
+	{"rr_cookie_add", (cmd_function)w_rr_cookie_add, 2,
+		fixup_spve_all, fixup_free_spve_all, REQUEST_ROUTE | BRANCH_ROUTE | FAILURE_ROUTE},
+	{"rr_cookie_check", (cmd_function)w_rr_cookie_check, 3,
+		fixup_spve_spve_igp, fixup_free_spve_spve_igp, REQUEST_ROUTE},
+	{"check_route_param", (cmd_function)w_check_route_param, 1,
+		fixup_regexp_null, fixup_free_regexp_null, REQUEST_ROUTE},
+	{"is_direction", (cmd_function)w_is_direction, 1,
+		direction_fixup, 0, REQUEST_ROUTE},
+	{"remove_record_route", w_remove_record_route, 0, 0, 0,	REQUEST_ROUTE | FAILURE_ROUTE},
+	{"rr_next_hop_route", (cmd_function)w_rr_next_hop_route, 0, 0, 0, ANY_ROUTE},
+	{"load_rr", (cmd_function)load_rr, 0, 0, 0, 0},
 	{0, 0, 0, 0, 0, 0}
 };
-
 
 /*!
  * \brief Exported parameters
  */
-static param_export_t params[] ={
-	{"append_fromtag",	    INT_PARAM, &append_fromtag},
-	{"enable_double_rr",	INT_PARAM, &enable_double_rr},
-	{"enable_full_lr",		INT_PARAM, &enable_full_lr},
-#ifdef ENABLE_USER_CHECK
-	{"ignore_user",		    PARAM_STR, &i_user},
-#endif
-	{"add_username",		INT_PARAM, &add_username},
-	{"enable_socket_mismatch_warning",INT_PARAM,&enable_socket_mismatch_warning},
-	{"custom_user_avp",     PARAM_STR, &custom_user_spec},
-	{"force_send_socket",   PARAM_INT, &rr_force_send_socket},
-	{"ignore_sips",         PARAM_INT, &rr_ignore_sips},
-	{"sockname_mode",       PARAM_INT, &rr_sockname_mode},
-	{0, 0, 0 }
+static param_export_t params[] = {
+	{"append_fromtag", PARAM_INT, &append_fromtag},
+	{"enable_double_rr", PARAM_INT, &enable_double_rr},
+	{"enable_full_lr", PARAM_INT, &enable_full_lr},
+	{"add_username", PARAM_INT, &add_username},
+	{"enable_socket_mismatch_warning", PARAM_INT,
+			&enable_socket_mismatch_warning},
+	{"custom_user_avp", PARAM_STR, &custom_user_spec},
+	{"force_send_socket", PARAM_INT, &rr_force_send_socket},
+	{"ignore_sips", PARAM_INT, &rr_ignore_sips},
+	{"sockname_mode", PARAM_INT, &rr_sockname_mode},
+	{"loose_route_mode", PARAM_INT, &rr_loose_route_mode},
+	{0, 0, 0}
 };
 
 /*!
  * \brief Exported Pseudo variables
  */
 static pv_export_t mod_pvs[] = {
-	{{"route_uri", (sizeof("route_uri")-1)}, /* URI of the first Route-Header */
+	{{"route_uri", (sizeof("route_uri") - 1)}, /* URI of the first Route-Header */
 		PVT_OTHER, pv_get_route_uri_f, 0, 0, 0, 0, 0},
-	{{"fti", (sizeof("fti")-1)}, /* From-Tag as for initial request */
+	{{"fti", (sizeof("fti") - 1)}, /* From-Tag as for initial request */
 		PVT_OTHER, pv_get_from_tag_initial, 0, 0, 0, 0, 0},
-	{{"tti", (sizeof("tti")-1)}, /* To-Tag as for response to initial request */
+	{{"tti", (sizeof("tti")	- 1)}, /* To-Tag as for response to initial request */
 		PVT_OTHER, pv_get_to_tag_initial, 0, 0, 0, 0, 0},
-	{ {"rdir", (sizeof("rdir")-1)}, PVT_OTHER, pv_get_rdir, 0,
-		pv_parse_rdir_name, 0, 0, 0 },
-
+	{{"rdir", (sizeof("rdir") - 1)},
+		PVT_OTHER, pv_get_rdir, 0,	pv_parse_rdir_name, 0, 0, 0},
 	{{0, 0}, 0, 0, 0, 0, 0, 0, 0}
 };
-
-
 
 struct module_exports exports = {
 	"rr",            /* module name */
 	DEFAULT_DLFLAGS, /* dlopen flags */
-	cmds,            /* cmd (cfg function) exports */
-	params,          /* param exports */
+	cmds,            /* exported functions */
+	params,          /* exported parameters */
 	0,               /* RPC method exports */
-	mod_pvs,         /* pseudo-variables exports */
+	mod_pvs,         /* exported pseudo-variables */
 	0,               /* response handling function */
-	mod_init,        /* module init function */
+	mod_init,        /* module initialization function */
 	0,               /* per-child init function */
 	mod_destroy      /* module destroy function */
 };
-
+/* clang-format on */
 
 static int mod_init(void)
 {
-	if (ob_load_api(&rr_obb) == 0)
+	if(ob_load_api(&rr_obb) == 0)
 		LM_DBG("Bound rr module to outbound module\n");
-	else
-	{
+	else {
 		LM_INFO("outbound module not available\n");
 		memset(&rr_obb, 0, sizeof(ob_api_t));
 	}
 
-#ifdef ENABLE_USER_CHECK
-	if(i_user.s && rr_obb.use_outbound)
-	{
-		LM_ERR("cannot use \"ignore_user\" with outbound\n");
-		return -1;
-	}
-#endif
-
-	if (add_username != 0 && rr_obb.use_outbound)
-	{
+	if(add_username != 0 && rr_obb.use_outbound) {
 		LM_ERR("cannot use \"add_username\" with outbound\n");
 		return -1;
 	}
 
-	if (custom_user_spec.s) {
-		if (pv_parse_spec(&custom_user_spec, &custom_user_avp) == 0
+	if(custom_user_spec.s) {
+		if(pv_parse_spec(&custom_user_spec, &custom_user_avp) == 0
 				&& (custom_user_avp.type != PVT_AVP)) {
 			LM_ERR("malformed or non AVP custom_user "
-					"AVP definition in '%.*s'\n", custom_user_spec.len,custom_user_spec.s);
+				   "AVP definition in '%.*s'\n",
+					custom_user_spec.len, custom_user_spec.s);
 			return -1;
 		}
 	}
@@ -224,48 +232,52 @@ static void mod_destroy(void)
 }
 
 
-static int it_list_fixup(void** param, int param_no)
+static int it_list_fixup(void **param, int param_no)
 {
 	pv_elem_t *model;
 	str s;
-	if(*param)
-	{
-		s.s = (char*)(*param); s.len = strlen(s.s);
-		if(pv_parse_format(&s, &model)<0)
-		{
-			LM_ERR("wrong format[%s]\n",(char*)(*param));
+	if(*param) {
+		s.s = (char *)(*param);
+		s.len = strlen(s.s);
+		if(pv_parse_format(&s, &model) < 0) {
+			LM_ERR("wrong format[%s]\n", (char *)(*param));
 			return E_UNSPEC;
 		}
-		*param = (void*)model;
+		*param = (void *)model;
 	}
 	return 0;
 }
 
+static int it_list_fixup_free(void **param, int param_no)
+{
+	pv_elem_free_all(*param);
+	return 0;
+}
 
-static int direction_fixup(void** param, int param_no)
+static int direction_fixup(void **param, int param_no)
 {
 	char *s;
 	int n;
 
-	if (!append_fromtag) {
+	if(!append_fromtag) {
 		LM_ERR("usage of \"is_direction\" function requires parameter"
-				"\"append_fromtag\" enabled!!");
+			   "\"append_fromtag\" enabled!!");
 		return E_CFG;
 	}
-	if (param_no==1) {
-		s = (char*) *param;
-		if ( strcasecmp(s,"downstream")==0 ) {
+	if(param_no == 1) {
+		s = (char *)*param;
+		if(strcasecmp(s, "downstream") == 0) {
 			n = RR_FLOW_DOWNSTREAM;
-		} else if ( strcasecmp(s,"upstream")==0 ) {
+		} else if(strcasecmp(s, "upstream") == 0) {
 			n = RR_FLOW_UPSTREAM;
 		} else {
-			LM_ERR("unknown direction '%s'\n",s);
+			LM_ERR("unknown direction '%s'\n", s);
 			return E_CFG;
 		}
 		/* free string */
 		pkg_free(*param);
 		/* replace it with the flag */
-		*param = (void*)(unsigned long)n;
+		*param = (void *)(unsigned long)n;
 	}
 	return 0;
 }
@@ -275,7 +287,7 @@ static int direction_fixup(void** param, int param_no)
  */
 static int w_loose_route(struct sip_msg *msg, char *p1, char *p2)
 {
-	return loose_route_mode(msg, 0);
+	return loose_route_mode(msg, rr_loose_route_mode);
 }
 
 /**
@@ -297,7 +309,7 @@ static int w_loose_route_preloaded(sip_msg_t *msg, char *p1, char *p2)
 static int w_loose_route_mode(struct sip_msg *msg, char *pmode, char *p2)
 {
 	int vmode = 0;
-	if(fixup_get_ivalue(msg, (gparam_t*)pmode, &vmode) < 0) {
+	if(fixup_get_ivalue(msg, (gparam_t *)pmode, &vmode) < 0) {
 		LM_ERR("failed to get the mode parameter\n");
 		return -1;
 	}
@@ -330,22 +342,22 @@ static int ki_loose_route_mode(sip_msg_t *msg, int vmode)
  */
 static int ki_record_route_params(sip_msg_t *msg, str *sparams)
 {
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
 
-	if ( record_route( msg, sparams )<0 )
+	if(record_route(msg, sparams) < 0)
 		return -1;
 
-	if(get_route_type()!=BRANCH_ROUTE)
+	if(get_route_type() != BRANCH_ROUTE)
 		msg->msg_flags |= FL_RR_ADDED;
 	return 1;
 }
 
 static int ki_record_route(sip_msg_t *msg)
 {
-	return ki_record_route_params( msg, 0 );
+	return ki_record_route_params(msg, 0);
 }
 
 /**
@@ -353,30 +365,31 @@ static int ki_record_route(sip_msg_t *msg)
  */
 static int ki_record_route_preset(sip_msg_t *msg, str *addr1, str *addr2)
 {
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
-	if (addr2 && addr2->len>0 && !enable_double_rr) {
-		LM_ERR("Attempt to double record-route while 'enable_double_rr' param is disabled\n");
+	if(addr2 && addr2->len > 0 && !enable_double_rr) {
+		LM_ERR("Attempt to double record-route while 'enable_double_rr' param "
+			   "is disabled\n");
 		return -1;
 	}
 
-	if ( record_route_preset(msg, addr1)<0 )
+	if(record_route_preset(msg, addr1) < 0)
 		return -1;
 
-	if (!addr2 || addr2->len<=0)
+	if(!addr2 || addr2->len <= 0)
 		goto done;
 
-	if ( record_route_preset(msg, addr2)<0 )
+	if(record_route_preset(msg, addr2) < 0)
 		return -1;
 
 done:
 	reset_rr_param();
 
-	msg->msg_flags |= FL_RR_ADDED;
+	if(get_route_type() != BRANCH_ROUTE)
+		msg->msg_flags |= FL_RR_ADDED;
 	return 1;
-
 }
 
 /**
@@ -384,18 +397,18 @@ done:
  */
 static int ki_record_route_preset_one(sip_msg_t *msg, str *addr1)
 {
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
 
-	if ( record_route_preset(msg, addr1)<0 ) {
+	if(record_route_preset(msg, addr1) < 0) {
 		return -1;
 	}
 
-	msg->msg_flags |= FL_RR_ADDED;
+	if(get_route_type() != BRANCH_ROUTE)
+		msg->msg_flags |= FL_RR_ADDED;
 	return 1;
-
 }
 
 /**
@@ -405,17 +418,17 @@ static int w_record_route(struct sip_msg *msg, char *key, char *bar)
 {
 	str s;
 
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
 
-	if (key && pv_printf_s(msg, (pv_elem_t*)key, &s)<0) {
+	if(key && pv_printf_s(msg, (pv_elem_t *)key, &s) < 0) {
 		LM_ERR("failed to print the format\n");
 		return -1;
 	}
 
-	return ki_record_route_params( msg, key?&s:0 );
+	return ki_record_route_params(msg, key ? &s : 0);
 }
 
 
@@ -423,34 +436,36 @@ static int w_record_route_preset(struct sip_msg *msg, char *key, char *key2)
 {
 	str s;
 
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
-	if (key2 && !enable_double_rr) {
-		LM_ERR("Attempt to double record-route while 'enable_double_rr' param is disabled\n");
+	if(key2 && !enable_double_rr) {
+		LM_ERR("Attempt to double record-route while 'enable_double_rr' param "
+			   "is disabled\n");
 		return -1;
 	}
 
-	if (pv_printf_s(msg, (pv_elem_t*)key, &s)<0) {
+	if(pv_printf_s(msg, (pv_elem_t *)key, &s) < 0) {
 		LM_ERR("failed to print the format\n");
 		return -1;
 	}
-	if ( record_route_preset( msg, &s)<0 )
+	if(record_route_preset(msg, &s) < 0)
 		return -1;
 
-	if (!key2)
+	if(!key2)
 		goto done;
 
-	if (pv_printf_s(msg, (pv_elem_t*)key2, &s)<0) {
+	if(pv_printf_s(msg, (pv_elem_t *)key2, &s) < 0) {
 		LM_ERR("failed to print the format\n");
 		return -1;
 	}
-	if ( record_route_preset( msg, &s)<0 )
+	if(record_route_preset(msg, &s) < 0)
 		return -1;
 
 done:
-	msg->msg_flags |= FL_RR_ADDED;
+	if(get_route_type() != BRANCH_ROUTE)
+		msg->msg_flags |= FL_RR_ADDED;
 	return 1;
 }
 
@@ -458,23 +473,25 @@ done:
 /**
  * wrapper for record_route(msg, params)
  */
-static int w_record_route_advertised_address(struct sip_msg *msg, char *addr, char *bar)
+static int w_record_route_advertised_address(
+		struct sip_msg *msg, char *addr, char *bar)
 {
 	str s;
 
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
 
-	if (pv_printf_s(msg, (pv_elem_t*)addr, &s) < 0) {
+	if(pv_printf_s(msg, (pv_elem_t *)addr, &s) < 0) {
 		LM_ERR("failed to print the format\n");
 		return -1;
 	}
-	if ( record_route_advertised_address( msg, &s ) < 0)
+	if(record_route_advertised_address(msg, &s) < 0)
 		return -1;
 
-	msg->msg_flags |= FL_RR_ADDED;
+	if(get_route_type() != BRANCH_ROUTE)
+		msg->msg_flags |= FL_RR_ADDED;
 	return 1;
 }
 
@@ -483,15 +500,16 @@ static int w_record_route_advertised_address(struct sip_msg *msg, char *addr, ch
  */
 static int ki_record_route_advertised_address(sip_msg_t *msg, str *addr)
 {
-	if (msg->msg_flags & FL_RR_ADDED) {
+	if(msg->msg_flags & FL_RR_ADDED) {
 		LM_ERR("Double attempt to record-route\n");
 		return -1;
 	}
 
-	if ( record_route_advertised_address(msg, addr) < 0)
+	if(record_route_advertised_address(msg, addr) < 0)
 		return -1;
 
-	msg->msg_flags |= FL_RR_ADDED;
+	if(get_route_type() != BRANCH_ROUTE)
+		msg->msg_flags |= FL_RR_ADDED;
 	return 1;
 }
 
@@ -500,23 +518,367 @@ static int w_add_rr_param(struct sip_msg *msg, char *key, char *foo)
 {
 	str s;
 
-	if (pv_printf_s(msg, (pv_elem_t*)key, &s)<0) {
+	if(pv_printf_s(msg, (pv_elem_t *)key, &s) < 0) {
 		LM_ERR("failed to print the format\n");
 		return -1;
 	}
-	return ((add_rr_param( msg, &s)==0)?1:-1);
+	return ((add_rr_param(msg, &s) == 0) ? 1 : -1);
 }
 
 
 static int ki_add_rr_param(sip_msg_t *msg, str *sparam)
 {
-	return ((add_rr_param( msg, sparam)==0)?1:-1);
+	return ((add_rr_param(msg, sparam) == 0) ? 1 : -1);
 }
 
 
-static int w_check_route_param(struct sip_msg *msg,char *re, char *foo)
+#define RR_COOKIE_DATA_LEN 12
+#define RR_COOKIE_HASH_LEN 6
+#define RR_COOKIE_VALUE_LEN 16
+
+/**
+ * Set the two-byte field used for newly generated cookies.
+ */
+static int ki_rr_cookie_flinit(sip_msg_t *msg, int ival)
 {
-	return ((check_route_param(msg,(regex_t*)re)==0)?1:-1);
+	(void)msg;
+
+	if(ival < 0 || ival > UINT16_MAX) {
+		LM_ERR("cookie flags value must be between 0 and %u\n", UINT16_MAX);
+		return -1;
+	}
+	rr_cookie_flags = (uint16_t)ival;
+	return 1;
+}
+
+
+static int w_rr_cookie_flinit(struct sip_msg *msg, char *pval, char *foo)
+{
+	int ival;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pval, &ival) != 0) {
+		LM_ERR("failed to get the cookie flags value\n");
+		return -1;
+	}
+	return ki_rr_cookie_flinit(msg, ival);
+}
+
+
+/**
+ * Set one bit in the two-byte field used for newly generated cookies.
+ */
+static int ki_rr_cookie_flset(sip_msg_t *msg, int idx)
+{
+	(void)msg;
+
+	if(idx < 0 || idx >= (int)(sizeof(rr_cookie_flags) * 8)) {
+		LM_ERR("cookie flag bit position must be between 0 and %d\n",
+				(int)(sizeof(rr_cookie_flags) * 8) - 1);
+		return -1;
+	}
+	rr_cookie_flags |= (uint16_t)(1U << idx);
+	return 1;
+}
+
+
+static int w_rr_cookie_flset(struct sip_msg *msg, char *pidx, char *foo)
+{
+	int idx;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pidx, &idx) != 0) {
+		LM_ERR("failed to get the cookie flag bit position\n");
+		return -1;
+	}
+	return ki_rr_cookie_flset(msg, idx);
+}
+
+
+/**
+ * Clear one bit in the two-byte field used for newly generated cookies.
+ */
+static int ki_rr_cookie_flreset(sip_msg_t *msg, int idx)
+{
+	(void)msg;
+
+	if(idx < 0 || idx >= (int)(sizeof(rr_cookie_flags) * 8)) {
+		LM_ERR("cookie flag bit position must be between 0 and %d\n",
+				(int)(sizeof(rr_cookie_flags) * 8) - 1);
+		return -1;
+	}
+	rr_cookie_flags &= (uint16_t)~(1U << idx);
+	return 1;
+}
+
+
+static int w_rr_cookie_flreset(struct sip_msg *msg, char *pidx, char *foo)
+{
+	int idx;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pidx, &idx) != 0) {
+		LM_ERR("failed to get the cookie flag bit position\n");
+		return -1;
+	}
+	return ki_rr_cookie_flreset(msg, idx);
+}
+
+
+/**
+ * Check one bit in the two-byte cookie flags field.
+ */
+static int ki_rr_cookie_flisset(sip_msg_t *msg, int idx)
+{
+	(void)msg;
+
+	if(idx < 0 || idx >= (int)(sizeof(rr_cookie_flags) * 8)) {
+		LM_ERR("cookie flag bit position must be between 0 and %d\n",
+				(int)(sizeof(rr_cookie_flags) * 8) - 1);
+		return -1;
+	}
+	return (rr_cookie_flags & (uint16_t)(1U << idx)) ? 1 : -1;
+}
+
+
+static int w_rr_cookie_flisset(struct sip_msg *msg, char *pidx, char *foo)
+{
+	int idx;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pidx, &idx) != 0) {
+		LM_ERR("failed to get the cookie flag bit position\n");
+		return -1;
+	}
+	return ki_rr_cookie_flisset(msg, idx);
+}
+
+
+/**
+ * Decode a cookie from the named parameter of the local Route URI.
+ */
+static int rr_cookie_decode(sip_msg_t *msg, str *name,
+		uint8_t cookie_data[RR_COOKIE_DATA_LEN + 1])
+{
+	str value;
+
+	if(name == NULL || name->s == NULL || name->len <= 0) {
+		LM_ERR("invalid cookie parameter name\n");
+		return -1;
+	}
+	if(get_route_param(msg, name, &value) < 0
+			|| value.len != RR_COOKIE_VALUE_LEN) {
+		return -1;
+	}
+	if(base64url_dec(value.s, value.len, (char *)cookie_data,
+				RR_COOKIE_DATA_LEN + 1)
+			!= RR_COOKIE_DATA_LEN) {
+		return -1;
+	}
+	return 0;
+}
+
+
+/**
+ * Fetch the two-byte flags field from a cookie on the local Route URI.
+ */
+static int ki_rr_cookie_flfetch(sip_msg_t *msg, str *name)
+{
+	uint8_t cookie_data[RR_COOKIE_DATA_LEN + 1];
+	uint16_t field;
+
+	if(rr_cookie_decode(msg, name, cookie_data) < 0) {
+		return -1;
+	}
+	memcpy(&field, cookie_data, sizeof(field));
+	rr_cookie_flags = ntohs(field);
+	return 1;
+}
+
+
+static int w_rr_cookie_flfetch(struct sip_msg *msg, char *name, char *foo)
+{
+	str sname;
+
+	if(fixup_get_svalue(msg, (gparam_t *)name, &sname) != 0) {
+		LM_ERR("failed to get the cookie parameter name\n");
+		return -1;
+	}
+	return ki_rr_cookie_flfetch(msg, &sname);
+}
+
+
+/**
+ * Compute the cookie digest from the encoded F and T fields, Call-ID and sval.
+ */
+static int rr_cookie_hash(sip_msg_t *msg, str *sval,
+		uint8_t cookie_data[RR_COOKIE_DATA_LEN],
+		uint8_t digest[SHA256_DIGEST_LENGTH])
+{
+	static const uint8_t separator = 10;
+	SHA256_CTX sha256;
+
+	if(parse_headers(msg, HDR_CALLID_F, 0) < 0 || msg->callid == NULL
+			|| msg->callid->body.s == NULL || msg->callid->body.len <= 0) {
+		LM_ERR("failed to parse Call-ID header\n");
+		return -1;
+	}
+
+	sr_SHA256_Init(&sha256);
+	sr_SHA256_Update(&sha256, cookie_data, sizeof(uint16_t));
+	sr_SHA256_Update(&sha256, &separator, sizeof(separator));
+	sr_SHA256_Update(&sha256, cookie_data + sizeof(uint16_t), sizeof(uint32_t));
+	sr_SHA256_Update(&sha256, &separator, sizeof(separator));
+	sr_SHA256_Update(&sha256, (uint8_t *)msg->callid->body.s,
+			msg->callid->body.len);
+	sr_SHA256_Update(&sha256, &separator, sizeof(separator));
+	if(sval->len > 0) {
+		sr_SHA256_Update(&sha256, (uint8_t *)sval->s, sval->len);
+	}
+	sr_SHA256_Final(digest, &sha256);
+	return 0;
+}
+
+/**
+ * Build and append a Record-Route cookie parameter.
+ */
+static int ki_rr_cookie_add(sip_msg_t *msg, str *name, str *sval)
+{
+	uint8_t digest[SHA256_DIGEST_LENGTH];
+	uint8_t cookie_data[RR_COOKIE_DATA_LEN];
+	uint32_t timestamp;
+	uint16_t field;
+	char cookie_value[RR_COOKIE_VALUE_LEN + 1];
+	char *param_buf;
+	str param;
+	int ret;
+
+	if(name == NULL || name->s == NULL || name->len <= 0) {
+		LM_ERR("invalid cookie parameter name\n");
+		return -1;
+	}
+	if(sval == NULL || sval->len < 0 || (sval->len > 0 && sval->s == NULL)) {
+		LM_ERR("invalid cookie value parameter\n");
+		return -1;
+	}
+	timestamp = htonl((uint32_t)time(NULL));
+	field = htons(rr_cookie_flags);
+	memcpy(cookie_data, &field, sizeof(field));
+	memcpy(cookie_data + sizeof(field), &timestamp, sizeof(timestamp));
+
+	if(rr_cookie_hash(msg, sval, cookie_data, digest) < 0) {
+		return -1;
+	}
+	memcpy(cookie_data + sizeof(field) + sizeof(timestamp), digest,
+			RR_COOKIE_HASH_LEN);
+
+	if(base64url_enc((char *)cookie_data, sizeof(cookie_data), cookie_value,
+				sizeof(cookie_value)) != RR_COOKIE_VALUE_LEN) {
+		LM_ERR("failed to encode Record-Route cookie\n");
+		return -1;
+	}
+
+	param.len = 1 + name->len + 1 + RR_COOKIE_VALUE_LEN;
+	param_buf = pkg_malloc(param.len);
+	if(param_buf == NULL) {
+		PKG_MEM_ERROR_FMT("missing (%d)\n", param.len);
+		return -1;
+	}
+	param.s = param_buf;
+	param.s[0] = ';';
+	memcpy(param.s + 1, name->s, name->len);
+	param.s[1 + name->len] = '=';
+	memcpy(param.s + 1 + name->len + 1, cookie_value, RR_COOKIE_VALUE_LEN);
+
+	ret = add_rr_param(msg, &param);
+	pkg_free(param_buf);
+	return (ret == 0) ? 1 : -1;
+}
+
+
+static int w_rr_cookie_add(struct sip_msg *msg, char *name, char *value)
+{
+	str sname;
+	str sval;
+
+	if(fixup_get_svalue(msg, (gparam_t *)name, &sname) != 0) {
+		LM_ERR("failed to get the cookie parameter name\n");
+		return -1;
+	}
+	if(fixup_get_svalue(msg, (gparam_t *)value, &sval) != 0) {
+		LM_ERR("failed to get the cookie value parameter\n");
+		return -1;
+	}
+	return ki_rr_cookie_add(msg, &sname, &sval);
+}
+
+
+/**
+ * Validate a cookie from the local Route URI.
+ */
+static int ki_rr_cookie_check(
+		sip_msg_t *msg, str *name, str *sval, int tdiff)
+{
+	uint8_t cookie_data[RR_COOKIE_DATA_LEN + 1];
+	uint8_t digest[SHA256_DIGEST_LENGTH];
+	uint32_t timestamp;
+	time_t now;
+	unsigned int mismatch;
+	int i;
+
+	if(sval == NULL || sval->len < 0 || (sval->len > 0 && sval->s == NULL)) {
+		LM_ERR("invalid cookie value parameter\n");
+		return -1;
+	}
+	if(tdiff < 0) {
+		LM_ERR("cookie time difference must not be negative\n");
+		return -1;
+	}
+	if(rr_cookie_decode(msg, name, cookie_data) < 0) {
+		return -1;
+	}
+
+	memcpy(&timestamp, cookie_data + sizeof(uint16_t), sizeof(timestamp));
+	timestamp = ntohl(timestamp);
+	now = time(NULL);
+	if(now < 0 || (uint64_t)timestamp + (uint64_t)tdiff < (uint64_t)now) {
+		return -1;
+	}
+
+	if(rr_cookie_hash(msg, sval, cookie_data, digest) < 0) {
+		return -1;
+	}
+	mismatch = 0;
+	for(i = 0; i < RR_COOKIE_HASH_LEN; i++) {
+		mismatch |= digest[i]
+				^ cookie_data[sizeof(uint16_t) + sizeof(uint32_t) + i];
+	}
+	return (mismatch == 0) ? 1 : -1;
+}
+
+
+static int w_rr_cookie_check(
+		struct sip_msg *msg, char *name, char *value, char *ptdiff)
+{
+	str sname;
+	str sval;
+	int tdiff;
+
+	if(fixup_get_svalue(msg, (gparam_t *)name, &sname) != 0) {
+		LM_ERR("failed to get the cookie parameter name\n");
+		return -1;
+	}
+	if(fixup_get_svalue(msg, (gparam_t *)value, &sval) != 0) {
+		LM_ERR("failed to get the cookie value parameter\n");
+		return -1;
+	}
+	if(fixup_get_ivalue(msg, (gparam_t *)ptdiff, &tdiff) != 0) {
+		LM_ERR("failed to get the cookie time difference\n");
+		return -1;
+	}
+	return ki_rr_cookie_check(msg, &sname, &sval, tdiff);
+}
+
+
+static int w_check_route_param(struct sip_msg *msg, char *re, char *foo)
+{
+	return ((check_route_param(msg, (regex_t *)re) == 0) ? 1 : -1);
 }
 
 
@@ -525,36 +887,35 @@ static int ki_check_route_param(sip_msg_t *msg, str *sre)
 	int ret;
 	regex_t re;
 
-	if (regcomp(&re, sre->s, REG_EXTENDED|REG_ICASE|REG_NEWLINE)) {
+	if(regcomp(&re, sre->s, REG_EXTENDED | REG_ICASE | REG_NEWLINE)) {
 		LM_ERR("bad re %s\n", sre->s);
 		return -1;
 	}
 	ret = check_route_param(msg, &re);
 	regfree(&re);
 
-	return ((ret==0)?1:-1);
+	return ((ret == 0) ? 1 : -1);
 }
 
 
-
-static int w_is_direction(struct sip_msg *msg,char *dir, char *foo)
+static int w_is_direction(struct sip_msg *msg, char *dir, char *foo)
 {
-	return ((is_direction(msg,(int)(long)dir)==0)?1:-1);
+	return ((is_direction(msg, (int)(long)dir) == 0) ? 1 : -1);
 }
 
 static int ki_is_direction(sip_msg_t *msg, str *dir)
 {
 	int n;
 
-	if (!append_fromtag) {
+	if(!append_fromtag) {
 		LM_ERR("usage of \"is_direction\" function requires parameter"
-				"\"append_fromtag\" enabled!!");
+			   "\"append_fromtag\" enabled!!");
 		return E_CFG;
 	}
 
-	if (dir->len==10 && strncasecmp(dir->s, "downstream", 10)==0) {
+	if(dir->len == 10 && strncasecmp(dir->s, "downstream", 10) == 0) {
 		n = RR_FLOW_DOWNSTREAM;
-	} else if (dir->len==8 && strncasecmp(dir->s, "upstream", 8)==0) {
+	} else if(dir->len == 8 && strncasecmp(dir->s, "upstream", 8) == 0) {
 		n = RR_FLOW_UPSTREAM;
 	} else {
 		LM_ERR("unknown direction '%.*s' - use 'downstream' or 'upstream'\n",
@@ -562,46 +923,45 @@ static int ki_is_direction(sip_msg_t *msg, str *dir)
 		return E_CFG;
 	}
 
-	return ((is_direction(msg,n)==0)?1:-1);
+	return ((is_direction(msg, n) == 0) ? 1 : -1);
 }
 
 /*
  * Return the URI of the topmost Route-Header.
  */
-static int
-pv_get_route_uri_f(struct sip_msg *msg, pv_param_t *param,
-		pv_value_t *res)
+static int pv_get_route_uri_f(
+		struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 {
-	struct hdr_field* hdr;
-	rr_t* rt;
+	struct hdr_field *hdr;
+	rr_t *rt;
 	str uri;
 
-	if (!msg) {
+	if(!msg) {
 		LM_ERR("No message?!?\n");
 		return -1;
 	}
 
 	/* Parse the message until the First-Route-Header: */
-	if (parse_headers(msg, HDR_ROUTE_F, 0) == -1) {
+	if(parse_headers(msg, HDR_ROUTE_F, 0) == -1) {
 		LM_ERR("while parsing message\n");
-		return -1;
+		return pv_get_null(msg, param, res);
 	}
 
-	if (!msg->route) {
+	if(!msg->route) {
 		LM_INFO("No route header present.\n");
-		return -1;
+		return pv_get_null(msg, param, res);
 	}
 	hdr = msg->route;
 
 	/* Parse the contents of the header: */
-	if (parse_rr(hdr) == -1) {
+	if(parse_rr(hdr) == -1) {
 		LM_ERR("Error while parsing Route header\n");
-		return -1;
+		return pv_get_null(msg, param, res);
 	}
 
 
 	/* Retrieve the Route-Header */
-	rt = (rr_t*)hdr->parsed;
+	rt = (rr_t *)hdr->parsed;
 	uri = rt->nameaddr.uri;
 
 	return pv_get_strval(msg, param, res, &uri);
@@ -612,73 +972,76 @@ static void free_rr_lump(struct lump **list)
 	struct lump *prev_lump, *lump, *a, *foo, *next;
 	int first_shmem;
 
-	first_shmem=1;
-	next=0;
-	prev_lump=0;
-	for(lump=*list;lump;lump=next) {
-		next=lump->next;
-		if (lump->type==HDR_RECORDROUTE_T) {
+	first_shmem = 1;
+	next = 0;
+	prev_lump = 0;
+	for(lump = *list; lump; lump = next) {
+		next = lump->next;
+		if(lump->type == HDR_RECORDROUTE_T) {
 			/* may be called from railure_route */
 			/* if (lump->flags & (LUMPFLAG_DUPED|LUMPFLAG_SHMEM)){
 				LOG(L_CRIT, "BUG: free_rr_lmp: lump %p, flags %x\n",
 						lump, lump->flags);
-			*/	/* ty to continue */
+			*/	/* try to continue */
 			/*}*/
-			a=lump->before;
+			a = lump->before;
 			while(a) {
-				foo=a; a=a->before;
-				if (!(foo->flags&(LUMPFLAG_DUPED|LUMPFLAG_SHMEM)))
+				foo = a;
+				a = a->before;
+				if(!(foo->flags & (LUMPFLAG_DUPED | LUMPFLAG_SHMEM)))
 					free_lump(foo);
-				if (!(foo->flags&LUMPFLAG_SHMEM))
+				if(!(foo->flags & LUMPFLAG_SHMEM))
 					pkg_free(foo);
 			}
-			a=lump->after;
+			a = lump->after;
 			while(a) {
-				foo=a; a=a->after;
-				if (!(foo->flags&(LUMPFLAG_DUPED|LUMPFLAG_SHMEM)))
+				foo = a;
+				a = a->after;
+				if(!(foo->flags & (LUMPFLAG_DUPED | LUMPFLAG_SHMEM)))
 					free_lump(foo);
-				if (!(foo->flags&LUMPFLAG_SHMEM))
+				if(!(foo->flags & LUMPFLAG_SHMEM))
 					pkg_free(foo);
 			}
 
-			if (first_shmem && (lump->flags&LUMPFLAG_SHMEM)) {
+			if(first_shmem && (lump->flags & LUMPFLAG_SHMEM)) {
 				/* This is the first element of the
 				shmemzied lump list, we can not unlink it!
 				It wound corrupt the list otherwise if we
 				are in failure_route. -- No problem, only the
 				anchor is left in the list */
 
-				LM_DBG("lump %p is left in the list\n",
-						lump);
+				LM_DBG("lump %p is left in the list\n", lump);
 
-				if (lump->len)
-					LM_CRIT("lump %p can not be removed, but len=%d\n",
-						lump, lump->len);
+				if(lump->len)
+					LM_CRIT("lump %p can not be removed, but len=%d\n", lump,
+							lump->len);
 
-				prev_lump=lump;
+				prev_lump = lump;
 			} else {
-				if (prev_lump) prev_lump->next = lump->next;
-				else *list = lump->next;
-				if (!(lump->flags&(LUMPFLAG_DUPED|LUMPFLAG_SHMEM)))
+				if(prev_lump)
+					prev_lump->next = lump->next;
+				else
+					*list = lump->next;
+				if(!(lump->flags & (LUMPFLAG_DUPED | LUMPFLAG_SHMEM)))
 					free_lump(lump);
-				if (!(lump->flags&LUMPFLAG_SHMEM)) {
+				if(!(lump->flags & LUMPFLAG_SHMEM)) {
 					pkg_free(lump);
 					lump = 0;
 				}
 			}
 		} else {
 			/* store previous position */
-			prev_lump=lump;
+			prev_lump = lump;
 		}
-		if (first_shmem && lump && (lump->flags&LUMPFLAG_SHMEM))
-			first_shmem=0;
+		if(first_shmem && lump && (lump->flags & LUMPFLAG_SHMEM))
+			first_shmem = 0;
 	}
 }
 
 /*
  * Remove Record-Route header from message lumps
  */
-static int w_remove_record_route(sip_msg_t* _m, char* _s1, char* _s2)
+static int w_remove_record_route(sip_msg_t *_m, char *_s1, char *_s2)
 {
 	free_rr_lump(&(_m->add_rm));
 	return 1;
@@ -687,7 +1050,7 @@ static int w_remove_record_route(sip_msg_t* _m, char* _s1, char* _s2)
 /*
  * Remove Record-Route header from message lumps
  */
-static int remove_record_route(sip_msg_t* _m)
+static int remove_record_route(sip_msg_t *_m)
 {
 	free_rr_lump(&(_m->add_rm));
 	return 1;
@@ -697,36 +1060,36 @@ static int remove_record_route(sip_msg_t* _m)
 /**
  *
  */
-static int pv_get_to_tag_initial(sip_msg_t *msg, pv_param_t *param,
-		pv_value_t *res)
+static int pv_get_to_tag_initial(
+		sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 {
 	struct to_body *xto;
-	if(msg==NULL)
+	if(msg == NULL)
 		return -1;
 
-	if(msg->to==NULL && parse_headers(msg, HDR_TO_F, 0)==-1) {
+	if(msg->to == NULL && parse_headers(msg, HDR_TO_F, 0) == -1) {
 		LM_ERR("cannot parse To header\n");
 		return pv_get_null(msg, param, res);
 	}
-	if(msg->to==NULL || get_to(msg)==NULL) {
+	if(msg->to == NULL || get_to(msg) == NULL) {
 		LM_DBG("no To header\n");
 		return pv_get_null(msg, param, res);
 	}
 	xto = get_to(msg);
 
-	if(is_direction(msg, RR_FLOW_UPSTREAM)==0) {
-		if(parse_from_header(msg)<0) {
+	if(is_direction(msg, RR_FLOW_UPSTREAM) == 0) {
+		if(parse_from_header(msg) < 0) {
 			LM_ERR("cannot parse From header\n");
 			return pv_get_null(msg, param, res);
 		}
-		if(msg->from==NULL || get_from(msg)==NULL) {
+		if(msg->from == NULL || get_from(msg) == NULL) {
 			LM_DBG("no From header\n");
 			return pv_get_null(msg, param, res);
 		}
 		xto = get_from(msg);
 	}
 
-	if (xto->tag_value.s==NULL || xto->tag_value.len<=0) {
+	if(xto->tag_value.s == NULL || xto->tag_value.len <= 0) {
 		LM_DBG("no Tag parameter\n");
 		return pv_get_null(msg, param, res);
 	}
@@ -736,36 +1099,36 @@ static int pv_get_to_tag_initial(sip_msg_t *msg, pv_param_t *param,
 /**
  *
  */
-static int pv_get_from_tag_initial(sip_msg_t *msg, pv_param_t *param,
-		pv_value_t *res)
+static int pv_get_from_tag_initial(
+		sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 {
 	struct to_body *xto;
-	if(msg==NULL)
+	if(msg == NULL)
 		return -1;
 
-	if(parse_from_header(msg)<0) {
+	if(parse_from_header(msg) < 0) {
 		LM_ERR("cannot parse From header\n");
 		return pv_get_null(msg, param, res);
 	}
-	if(msg->from==NULL || get_from(msg)==NULL) {
+	if(msg->from == NULL || get_from(msg) == NULL) {
 		LM_DBG("no From header\n");
 		return pv_get_null(msg, param, res);
 	}
 	xto = get_from(msg);
 
-	if(is_direction(msg, RR_FLOW_UPSTREAM)==0) {
-		if(msg->to==NULL && parse_headers(msg, HDR_TO_F, 0)==-1) {
+	if(is_direction(msg, RR_FLOW_UPSTREAM) == 0) {
+		if(msg->to == NULL && parse_headers(msg, HDR_TO_F, 0) == -1) {
 			LM_ERR("cannot parse To header\n");
 			return pv_get_null(msg, param, res);
 		}
-		if(msg->to==NULL || get_to(msg)==NULL) {
+		if(msg->to == NULL || get_to(msg) == NULL) {
 			LM_DBG("no To header\n");
 			return pv_get_null(msg, param, res);
 		}
 		xto = get_to(msg);
 	}
 
-	if (xto->tag_value.s==NULL || xto->tag_value.len<=0) {
+	if(xto->tag_value.s == NULL || xto->tag_value.len <= 0) {
 		LM_DBG("no Tag parameter\n");
 		return pv_get_null(msg, param, res);
 	}
@@ -777,21 +1140,22 @@ static int pv_get_from_tag_initial(sip_msg_t *msg, pv_param_t *param,
  */
 static int pv_parse_rdir_name(pv_spec_p sp, str *in)
 {
-	if(sp==NULL || in==NULL || in->len<=0)
+	if(sp == NULL || in == NULL || in->len <= 0)
 		return -1;
 
-	switch(in->len)
-	{
+	switch(in->len) {
 		case 2:
-			if(strncmp(in->s, "id", 2)==0)
+			if(strncmp(in->s, "id", 2) == 0)
 				sp->pvp.pvn.u.isname.name.n = 0;
-			else goto error;
-		break;
+			else
+				goto error;
+			break;
 		case 4:
-			if(strncmp(in->s, "name", 4)==0)
+			if(strncmp(in->s, "name", 4) == 0)
 				sp->pvp.pvn.u.isname.name.n = 1;
-			else goto error;
-		break;
+			else
+				goto error;
+			break;
 		default:
 			goto error;
 	}
@@ -805,28 +1169,23 @@ error:
 	return -1;
 }
 
-static str pv_rr_flow_list[] = {
-		{ "downstream",  10 },
-		{ "upstream",    8  },
-		{ 0, 0 }
-	};
+static str pv_rr_flow_list[] = {{"downstream", 10}, {"upstream", 8}, {0, 0}};
 
 /**
  *
  */
 static int pv_get_rdir(sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 {
-	if(msg==NULL || param==NULL)
+	if(msg == NULL || param == NULL)
 		return -1;
 
-	switch(param->pvn.u.isname.name.n)
-	{
+	switch(param->pvn.u.isname.name.n) {
 		case 1:
-			if(is_direction(msg, RR_FLOW_UPSTREAM)==0)
+			if(is_direction(msg, RR_FLOW_UPSTREAM) == 0)
 				return pv_get_strval(msg, param, res, &pv_rr_flow_list[1]);
 			return pv_get_strval(msg, param, res, &pv_rr_flow_list[0]);
 		default:
-			if(is_direction(msg, RR_FLOW_UPSTREAM)==0)
+			if(is_direction(msg, RR_FLOW_UPSTREAM) == 0)
 				return pv_get_uintval(msg, param, res, RR_FLOW_UPSTREAM);
 			return pv_get_uintval(msg, param, res, RR_FLOW_DOWNSTREAM);
 	}
@@ -890,6 +1249,41 @@ static sr_kemi_t sr_kemi_rr_exports[] = {
 	{ str_init("rr"), str_init("add_rr_param"),
 		SR_KEMIP_INT, ki_add_rr_param,
 		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_flinit"),
+		SR_KEMIP_INT, ki_rr_cookie_flinit,
+		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_flset"),
+		SR_KEMIP_INT, ki_rr_cookie_flset,
+		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_flreset"),
+		SR_KEMIP_INT, ki_rr_cookie_flreset,
+		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_flisset"),
+		SR_KEMIP_INT, ki_rr_cookie_flisset,
+		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_flfetch"),
+		SR_KEMIP_INT, ki_rr_cookie_flfetch,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_add"),
+		SR_KEMIP_INT, ki_rr_cookie_add,
+		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("rr"), str_init("cookie_check"),
+		SR_KEMIP_INT, ki_rr_cookie_check,
+		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_INT,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
 	{ str_init("rr"), str_init("check_route_param"),

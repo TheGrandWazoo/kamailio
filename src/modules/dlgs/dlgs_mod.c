@@ -35,6 +35,7 @@
 #include "../../core/timer_proc.h"
 
 #include "dlgs_records.h"
+#include "dlgs_stats.h"
 
 MODULE_VERSION
 
@@ -55,6 +56,7 @@ static void mod_destroy(void);
 
 static int w_dlgs_init(sip_msg_t *msg, char *psrc, char *pdst, char *pdata);
 static int w_dlgs_update(sip_msg_t *msg, char *p1, char *p2);
+static int w_dlgs_find(sip_msg_t *msg, char *p1, char *p2);
 static int w_dlgs_count(sip_msg_t *msg, char *pfield, char *pop, char *pdata);
 static int w_dlgs_tags_add(sip_msg_t *msg, char *ptags, char *p2);
 static int w_dlgs_tags_rm(sip_msg_t *msg, char *ptags, char *p2);
@@ -68,14 +70,16 @@ static cmd_export_t cmds[]={
 		fixup_free_spve_all, REQUEST_ROUTE|BRANCH_ROUTE|ONREPLY_ROUTE|ONSEND_ROUTE},
 	{"dlgs_update", (cmd_function)w_dlgs_update, 0, 0,
 		0, REQUEST_ROUTE|BRANCH_ROUTE|ONSEND_ROUTE},
+	{"dlgs_find", (cmd_function)w_dlgs_find, 0, 0,
+		0, REQUEST_ROUTE|BRANCH_ROUTE|ONSEND_ROUTE},
 	{"dlgs_count", (cmd_function)w_dlgs_count, 3, fixup_spve_all,
 		fixup_free_spve_all, ANY_ROUTE},
 	{"dlgs_tags_add", (cmd_function)w_dlgs_tags_add, 1, fixup_spve_null,
-		fixup_spve_null, ANY_ROUTE},
+		fixup_free_spve_null, ANY_ROUTE},
 	{"dlgs_tags_rm", (cmd_function)w_dlgs_tags_rm, 1, fixup_spve_null,
-		fixup_spve_null, ANY_ROUTE},
+		fixup_free_spve_null, ANY_ROUTE},
 	{"dlgs_tags_count", (cmd_function)w_dlgs_tags_count, 1, fixup_spve_null,
-		fixup_spve_null, ANY_ROUTE},
+		fixup_free_spve_null, ANY_ROUTE},
 	{0, 0, 0, 0, 0, 0}
 };
 
@@ -108,6 +112,10 @@ struct module_exports exports = {
  */
 static int mod_init(void)
 {
+	if(dlgs_stats_init() < 0) {
+		return -1;
+	}
+
 	if(dlgs_rpc_init() < 0) {
 		LM_ERR("failed to register RPC commands\n");
 		return -1;
@@ -117,13 +125,13 @@ static int mod_init(void)
 		return -1;
 	}
 
-	if(_dlgs_htsize_param>1) {
-		if(_dlgs_htsize_param>16) {
+	if(_dlgs_htsize_param > 1) {
+		if(_dlgs_htsize_param > 16) {
 			_dlgs_htsize_param = 16;
 		}
-		_dlgs_htsize = 1<<_dlgs_htsize_param;
+		_dlgs_htsize = 1 << _dlgs_htsize_param;
 	}
-	if(_dlgs_timer_interval<=0) {
+	if(_dlgs_timer_interval <= 0) {
 		_dlgs_timer_interval = 30;
 	}
 
@@ -133,7 +141,7 @@ static int mod_init(void)
 
 	sr_event_register_cb(SREV_SIP_REPLY_OUT, dlgs_sip_reply_out);
 
-	if(dlgs_init()<0) {
+	if(dlgs_init() < 0) {
 		return -1;
 	}
 	return 0;
@@ -144,7 +152,7 @@ static int mod_init(void)
  */
 static int child_init(int rank)
 {
-	if(sruid_init(&_dlgs_sruid, '-', "dlgs", SRUID_INC)<0) {
+	if(sruid_init(&_dlgs_sruid, '-', "dlgs", SRUID_INC) < 0) {
 		return -1;
 	}
 
@@ -177,8 +185,9 @@ static int ki_dlgs_init(sip_msg_t *msg, str *src, str *dst, str *data)
 		rmethod = msg->first_line.u.request.method_value;
 	} else {
 		rtype = SIP_REPLY;
-		if(msg->cseq==NULL && ((parse_headers(msg, HDR_CSEQ_F, 0)==-1) ||
-				(msg->cseq==NULL))) {
+		if(msg->cseq == NULL
+				&& ((parse_headers(msg, HDR_CSEQ_F, 0) == -1)
+						|| (msg->cseq == NULL))) {
 			LM_ERR("no CSEQ header\n");
 			return -1;
 		}
@@ -188,7 +197,7 @@ static int ki_dlgs_init(sip_msg_t *msg, str *src, str *dst, str *data)
 	if(rmethod == METHOD_INVITE) {
 		ret = dlgs_add_item(msg, src, dst, data);
 		LM_DBG("added item return code: %d\n", ret);
-		if(rtype==SIP_REPLY) {
+		if(rtype == SIP_REPLY) {
 			dlgs_update_item(msg);
 		}
 	} else {
@@ -207,15 +216,15 @@ static int w_dlgs_init(sip_msg_t *msg, char *psrc, char *pdst, char *pdata)
 	str vdst = STR_NULL;
 	str vdata = str_init("");
 
-	if(fixup_get_svalue(msg, (gparam_t*)psrc, &vsrc) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)psrc, &vsrc) < 0) {
 		LM_ERR("failed to get p1\n");
 		return -1;
 	}
-	if(fixup_get_svalue(msg, (gparam_t*)pdst, &vdst) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)pdst, &vdst) < 0) {
 		LM_ERR("failed to get p2\n");
 		return -1;
 	}
-	if(fixup_get_svalue(msg, (gparam_t*)pdata, &vdata) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)pdata, &vdata) < 0) {
 		LM_ERR("failed to get p3\n");
 		return -1;
 	}
@@ -244,6 +253,26 @@ static int w_dlgs_update(sip_msg_t *msg, char *p1, char *p2)
 /**
  *
  */
+static int ki_dlgs_find(sip_msg_t *msg)
+{
+	if(dlgs_find_item(msg) > 0) {
+		return 1;
+	}
+
+	return -1;
+}
+
+/**
+ *
+ */
+static int w_dlgs_find(sip_msg_t *msg, char *p1, char *p2)
+{
+	return ki_dlgs_find(msg);
+}
+
+/**
+ *
+ */
 static int ki_dlgs_count(sip_msg_t *msg, str *vfield, str *vop, str *vdata)
 {
 	int ret;
@@ -252,7 +281,7 @@ static int ki_dlgs_count(sip_msg_t *msg, str *vfield, str *vop, str *vdata)
 			vop->len, vop->s, vdata->len, vdata->s);
 	ret = dlgs_count(msg, vfield, vop, vdata);
 	if(ret <= 0) {
-		return (ret-1);
+		return (ret - 1);
 	}
 
 	return ret;
@@ -267,15 +296,15 @@ static int w_dlgs_count(sip_msg_t *msg, char *pfield, char *pop, char *pdata)
 	str vop = STR_NULL;
 	str vdata = str_init("");
 
-	if(fixup_get_svalue(msg, (gparam_t*)pfield, &vfield) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)pfield, &vfield) < 0) {
 		LM_ERR("failed to get p1\n");
 		return -1;
 	}
-	if(fixup_get_svalue(msg, (gparam_t*)pop, &vop) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)pop, &vop) < 0) {
 		LM_ERR("failed to get p2\n");
 		return -1;
 	}
-	if(fixup_get_svalue(msg, (gparam_t*)pdata, &vdata) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)pdata, &vdata) < 0) {
 		LM_ERR("failed to get p3\n");
 		return -1;
 	}
@@ -287,7 +316,7 @@ static int w_dlgs_count(sip_msg_t *msg, char *pfield, char *pop, char *pdata)
  */
 static int ki_dlgs_tags_add(sip_msg_t *msg, str *vtags)
 {
-	if(dlgs_tags_add(msg, vtags)<0) {
+	if(dlgs_tags_add(msg, vtags) < 0) {
 		return -1;
 	}
 	return 1;
@@ -300,7 +329,7 @@ static int w_dlgs_tags_add(sip_msg_t *msg, char *ptags, char *p2)
 {
 	str vtags = STR_NULL;
 
-	if(fixup_get_svalue(msg, (gparam_t*)ptags, &vtags) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)ptags, &vtags) < 0) {
 		LM_ERR("failed to get p1\n");
 		return -1;
 	}
@@ -312,7 +341,7 @@ static int w_dlgs_tags_add(sip_msg_t *msg, char *ptags, char *p2)
  */
 static int ki_dlgs_tags_rm(sip_msg_t *msg, str *vtags)
 {
-	if(dlgs_tags_rm(msg, vtags)<0) {
+	if(dlgs_tags_rm(msg, vtags) < 0) {
 		return -1;
 	}
 	return 1;
@@ -325,7 +354,7 @@ static int w_dlgs_tags_rm(sip_msg_t *msg, char *ptags, char *p2)
 {
 	str vtags = STR_NULL;
 
-	if(fixup_get_svalue(msg, (gparam_t*)ptags, &vtags) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)ptags, &vtags) < 0) {
 		LM_ERR("failed to get p1\n");
 		return -1;
 	}
@@ -340,7 +369,7 @@ static int ki_dlgs_tags_count(sip_msg_t *msg, str *vtags)
 	int ret;
 
 	ret = dlgs_tags_count(msg, vtags);
-	return (ret<=0)?(ret-1):ret;
+	return (ret == 0 || ret == -1) ? (ret - 1) : ret;
 }
 
 /**
@@ -350,7 +379,7 @@ static int w_dlgs_tags_count(sip_msg_t *msg, char *ptags, char *p2)
 {
 	str vtags = STR_NULL;
 
-	if(fixup_get_svalue(msg, (gparam_t*)ptags, &vtags) < 0) {
+	if(fixup_get_svalue(msg, (gparam_t *)ptags, &vtags) < 0) {
 		LM_ERR("failed to get p1\n");
 		return -1;
 	}
@@ -362,7 +391,7 @@ static int w_dlgs_tags_count(sip_msg_t *msg, char *ptags, char *p2)
  */
 static int dlgs_sip_reply_out(sr_event_param_t *evp)
 {
-	if(evp->rpl!=NULL) {
+	if(evp->rpl != NULL) {
 		dlgs_update_item(evp->rpl);
 	}
 	return 0;
@@ -380,6 +409,11 @@ static sr_kemi_t sr_kemi_dlgs_exports[] = {
 	},
 	{ str_init("dlgs"), str_init("dlgs_update"),
 		SR_KEMIP_INT, ki_dlgs_update,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("dlgs"), str_init("dlgs_find"),
+		SR_KEMIP_INT, ki_dlgs_find,
 		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},

@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -13,8 +15,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
- * along with this program; if not, write to the Free Software 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
@@ -30,41 +32,56 @@
 #include "../str.h"
 #include "msg_parser.h"
 
-enum {
-	TAG_PARAM = 400, GENERAL_PARAM
+enum
+{
+	TAG_PARAM = 400,
+	GENERAL_PARAM
 };
 
-typedef struct to_param{
-	int type;              /*!< Type of parameter */
-	str name;              /*!< Name of parameter */
-	str value;             /*!< Parameter value */
-	struct to_param* next; /*!< Next parameter in the list */
+typedef struct to_param
+{
+	int type;			   /*!< Type of parameter */
+	str name;			   /*!< Name of parameter */
+	str value;			   /*!< Parameter value */
+	struct to_param *next; /*!< Next parameter in the list */
 } to_param_t;
 
 
-typedef struct to_body{
-	int error;                    /*!< Error code */
-	str body;                     /*!< The whole header field body */
-	str uri;                      /*!< URI */
-	str display;				  /*!< Display Name */
-	str tag_value;                /*!< Value of tag */
+#define TBS_URI_ENCLOSED 1	 /*!< URI is enclodes in angle brackets */
+#define TBS_DISPLAY_QUOTED 2 /*!< Display name is quoted */
+
+typedef struct to_body
+{
+	int error;			/*!< Error code */
+	str body;			/*!< The whole header field body */
+	str uri;			/*!< URI */
+	str display;		/*!< Display Name */
+	str tag_value;		/*!< Value of tag */
+	unsigned int style; /*!< Styles for the fields */
 	struct sip_uri parsed_uri;
-	struct to_param *param_lst;   /*!< Linked list of parameters */
-	struct to_param *last_param;  /*!< Last parameter in the list */
+	struct to_param *param_lst;	 /*!< Linked list of parameters */
+	struct to_param *last_param; /*!< Last parameter in the list */
 } to_body_t;
 
 
 /*! \brief
  * To header field parser
  */
-char* parse_addr_spec(char* const buffer, const char* const end, struct to_body* const to_b, int allow_comma_separated);
+char *parse_addr_spec(char *const buffer, const char *const end,
+		struct to_body *const to_b, int allow_comma_separated);
 
-void free_to_params(struct to_body* const tb);
+/*! \brief
+ * Extended variant reporting E_OK, E_UNSPEC or E_OUT_OF_MEM
+ */
+char *parse_addr_spec_ex(char *const buffer, const char *const end,
+		struct to_body *const to_b, int allow_comma_separated, int *parse_rc);
 
-void free_to(struct to_body* const tb);
+void free_to_params(struct to_body *const tb);
 
-int parse_to_header(struct sip_msg* const msg);
+void free_to(struct to_body *const tb);
 
-sip_uri_t *parse_to_uri(struct sip_msg* const msg);
+int parse_to_header(struct sip_msg *const msg);
+
+sip_uri_t *parse_to_uri(struct sip_msg *const msg);
 
 #endif

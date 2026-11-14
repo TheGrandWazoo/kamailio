@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -15,8 +17,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
- * along with this program; if not, write to the Free Software 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
@@ -28,11 +30,14 @@
 #define MAXDMQHOSTS 30
 
 str dmq_notification_content_type = str_init("text/plain");
-dmq_resp_cback_t dmq_notification_resp_callback = {&notification_resp_callback_f, 0};
+dmq_resp_cback_t dmq_notification_resp_callback = {
+		&notification_resp_callback_f, 0};
+dmq_resp_cback_t dmq_default_resp_callback = {&default_resp_callback_f, 0};
 
 int *dmq_init_callback_done = 0;
 
 extern str dmq_notification_channel;
+extern int dmq_init_with_single;
 
 /**
  * @brief add notification peer
@@ -52,7 +57,7 @@ int add_notification_peer()
 		goto error;
 	}
 	/* add itself to the node list */
-	dmq_self_node = add_dmq_node(dmq_node_list, &dmq_server_address);
+	dmq_self_node = add_dmq_node(dmq_node_list, &dmq_server_address, 1);
 	if(!dmq_self_node) {
 		LM_ERR("error adding self node\n");
 		goto error;
@@ -224,6 +229,7 @@ int get_dmq_host_list(
 	for(prec = phead; prec; prec = prec->next) {
 		/**********
 		* o check max
+		* o skip non-A records (e.g., CNAME)
 		* o create URI
 		**********/
 
@@ -231,6 +237,11 @@ int get_dmq_host_list(
 			LM_WARN("notification host count reached max!\n");
 			free_rdata_list(phead);
 			return host_cnt;
+		}
+		/* Skip non-A records - get_record may return CNAME records
+		 * when DNS search list expansion is used */
+		if(prec->type != T_A) {
+			continue;
 		}
 		len = ip4tosbuf(
 				((struct a_rdata *)prec->rdata)->ip, pIP, IP4_MAX_STR_SIZE);
@@ -296,10 +307,12 @@ dmq_node_t *add_server_and_notify(str_list_t *server_list)
 	**********/
 
 	if(!dmq_multi_notify) {
-		while (server_list != NULL) {
-			LM_DBG("adding notification node %.*s\n",
-				server_list->s.len, server_list->s.s);
-			pfirst = add_dmq_node(dmq_node_list, &server_list->s);
+		while(server_list != NULL) {
+			LM_DBG("adding notification node %.*s\n", server_list->s.len,
+					server_list->s.s);
+			if(!find_dmq_node_uri(
+					   dmq_node_list, &server_list->s)) // check for duplicates
+				pfirst = add_dmq_node(dmq_node_list, &server_list->s, 0);
 			server_list = server_list->next;
 		}
 	} else {
@@ -323,8 +336,9 @@ dmq_node_t *add_server_and_notify(str_list_t *server_list)
 		for(index = 0; index < host_cnt; index++) {
 			pstr->s = puri_list[index];
 			pstr->len = strlen(puri_list[index]);
-			if(!find_dmq_node_uri(dmq_node_list, pstr)) { // check for duplicates
-				pnode = add_dmq_node(dmq_node_list, pstr);
+			if(!find_dmq_node_uri(
+					   dmq_node_list, pstr)) { // check for duplicates
+				pnode = add_dmq_node(dmq_node_list, pstr, 0);
 				if(pnode && !pfirst) {
 					pfirst = pnode;
 				}
@@ -356,7 +370,7 @@ dmq_node_t *add_server_and_notify(str_list_t *server_list)
  * 	From: ...
  * 	Max-Forwards: ...
  * 	Content-Length: 22
- * 	
+ *
  * 	sip:host1:port1;param1=value1
  * 	sip:host2:port2;param2=value2
  * 	...
@@ -369,9 +383,21 @@ int extract_node_list(dmq_node_list_t *update_list, struct sip_msg *msg)
 	dmq_node_t *cur = NULL;
 	dmq_node_t *ret, *find;
 	char *tmp, *end, *match;
+#define DMQ_EXTRACT_PEER_EVT_MAX 128
+	dmq_node_t *peer_upv[DMQ_EXTRACT_PEER_EVT_MAX];
+	dmq_node_t *peer_downv[DMQ_EXTRACT_PEER_EVT_MAX];
+	dmq_node_t *peer_disabledv[DMQ_EXTRACT_PEER_EVT_MAX];
+	int peer_upc = 0;
+	int peer_up_dropped = 0;
+	int peer_downc = 0;
+	int peer_down_dropped = 0;
+	int peer_disabledc = 0;
+	int peer_disabled_dropped = 0;
+	int pi;
 
-	if(!msg->content_length && (parse_headers(msg, HDR_CONTENTLENGTH_F, 0) < 0
-									   || !msg->content_length)) {
+	if(!msg->content_length
+			&& (parse_headers(msg, HDR_CONTENTLENGTH_F, 0) < 0
+					|| !msg->content_length)) {
 		LM_ERR("no content length header found\n");
 		return -1;
 	}
@@ -380,13 +406,17 @@ int extract_node_list(dmq_node_list_t *update_list, struct sip_msg *msg)
 		LM_DBG("content length is 0\n");
 		return total_nodes;
 	}
-	body.s = get_body(msg);
-	body.len = content_length;
+	if(get_body_str(msg, &body) < 0) {
+		LM_ERR("unable to get body\n");
+		return -1;
+	}
 	tmp = body.s;
 	end = body.s + body.len;
 
 	/* acquire big list lock */
+	LM_DBG("trying to acquire dmq_node_list->lock\n");
 	lock_get(&update_list->lock);
+	LM_DBG("acquired dmq_node_list->lock\n");
 	while(tmp < end) {
 		match = q_memchr(tmp, '\n', end - tmp);
 		if(match) {
@@ -402,9 +432,17 @@ int extract_node_list(dmq_node_list_t *update_list, struct sip_msg *msg)
 		/* trim the \r, \n and \0's */
 		trim_r(tmp_uri);
 		find = build_dmq_node(&tmp_uri, 0);
-		if(find == NULL)
-			return -1;
+		if(find == NULL) {
+			LM_ERR("error building dmq node\n");
+			goto error;
+		}
 		ret = find_dmq_node(update_list, find);
+
+		if(!ret) {
+			LM_INFO("dmq node not found by name,try again with IP address\n");
+			ret = find_dmq_node_ip(update_list, find);
+		}
+
 		if(!ret) {
 			LM_DBG("found new node %.*s\n", STR_FMT(&tmp_uri));
 			cur = build_dmq_node(&tmp_uri, 1);
@@ -416,27 +454,76 @@ int extract_node_list(dmq_node_list_t *update_list, struct sip_msg *msg)
 			update_list->nodes = cur;
 			update_list->count++;
 			total_nodes++;
-		} else if(!ret->local && find->uri.params.s && 
-					ret->status != find->status && ret->status != DMQ_NODE_DISABLED) {
-			/* don't update the node if it is in ending state */
+			if(!cur->local && cur->status == DMQ_NODE_ACTIVE) {
+				if(peer_upc < DMQ_EXTRACT_PEER_EVT_MAX)
+					peer_upv[peer_upc++] = cur;
+				else
+					peer_up_dropped++;
+			}
+		} else if(!ret->local && find->uri.params.s
+				  && ret->status != find->status
+				  && (ret->status != DMQ_NODE_DISABLED
+						  || find->status == DMQ_NODE_ACTIVE)) {
+			/* while disabled, ignore body except recovery to active */
 			LM_DBG("updating status on %.*s from %d to %d\n", STR_FMT(&tmp_uri),
 					ret->status, find->status);
 			ret->status = find->status;
 			total_nodes++;
+			/* Peer event follows new status; legal edges are fixed by the outer
+			 * condition above (e.g. no DISABLED -> not_active in this branch). */
+			switch(ret->status) {
+				case DMQ_NODE_ACTIVE:
+					if(peer_upc < DMQ_EXTRACT_PEER_EVT_MAX)
+						peer_upv[peer_upc++] = ret;
+					else
+						peer_up_dropped++;
+					break;
+				case DMQ_NODE_NOT_ACTIVE:
+					if(peer_downc < DMQ_EXTRACT_PEER_EVT_MAX)
+						peer_downv[peer_downc++] = ret;
+					else
+						peer_down_dropped++;
+					break;
+				case DMQ_NODE_DISABLED:
+					if(peer_disabledc < DMQ_EXTRACT_PEER_EVT_MAX)
+						peer_disabledv[peer_disabledc++] = ret;
+					else
+						peer_disabled_dropped++;
+					break;
+				default:
+					break;
+			}
 		}
 		destroy_dmq_node(find, 0);
 	}
 
 	/* release big list lock */
 	lock_release(&update_list->lock);
+	LM_DBG("released dmq_node_list->lock\n");
+	for(pi = 0; pi < peer_upc; pi++)
+		dmq_peer_run_event_route(peer_upv[pi]);
+	for(pi = 0; pi < peer_downc; pi++)
+		dmq_peer_run_event_route(peer_downv[pi]);
+	for(pi = 0; pi < peer_disabledc; pi++)
+		dmq_peer_run_event_route(peer_disabledv[pi]);
+	if(peer_up_dropped > 0)
+		LM_WARN("dmq extract: %d peers skipped peer-up (max %d)\n",
+				peer_up_dropped, DMQ_EXTRACT_PEER_EVT_MAX);
+	if(peer_down_dropped > 0)
+		LM_WARN("dmq extract: %d peers skipped peer-down (max %d)\n",
+				peer_down_dropped, DMQ_EXTRACT_PEER_EVT_MAX);
+	if(peer_disabled_dropped > 0)
+		LM_WARN("dmq extract: %d peers skipped peer-disabled (max %d)\n",
+				peer_disabled_dropped, DMQ_EXTRACT_PEER_EVT_MAX);
 	return total_nodes;
 error:
 	lock_release(&update_list->lock);
+	LM_DBG("released dmq_node_list->lock\n");
 	return -1;
 }
 
 
-int run_init_callbacks()
+int run_init_callbacks(dmq_node_t *dmq_node)
 {
 	dmq_peer_t *crt;
 
@@ -447,7 +534,7 @@ int run_init_callbacks()
 	crt = dmq_peer_list->peers;
 	while(crt) {
 		if(crt->init_callback) {
-			crt->init_callback();
+			crt->init_callback(dmq_node);
 		}
 		crt = crt->next;
 	}
@@ -500,7 +587,7 @@ int dmq_notification_callback_f(
 	pkg_free(response_body);
 	if(dmq_init_callback_done && !*dmq_init_callback_done) {
 		*dmq_init_callback_done = 1;
-		run_init_callbacks();
+		run_init_callbacks(dmq_init_with_single ? dmq_node : NULL);
 	}
 	return 0;
 error:
@@ -508,7 +595,7 @@ error:
 }
 
 /**
- * builds the body of a notification message from the list of servers 
+ * builds the body of a notification message from the list of servers
  * the result will look something like:
  * sip:host1:port1;param1=value1\r\n
  * sip:host2:port2;param2=value2\r\n
@@ -524,7 +611,7 @@ str *build_notification_body()
 	str *body;
 	body = pkg_malloc(sizeof(str));
 	if(body == NULL) {
-		LM_ERR("no more pkg\n");
+		PKG_MEM_ERROR;
 		return NULL;
 	}
 	memset(body, 0, sizeof(str));
@@ -532,18 +619,21 @@ str *build_notification_body()
 	body->len = NBODY_LEN;
 	body->s = pkg_malloc(body->len);
 	if(body->s == NULL) {
-		LM_ERR("no more pkg\n");
+		PKG_MEM_ERROR;
 		pkg_free(body);
 		return NULL;
 	}
 	/* we add each server to the body - each on a different line */
+	LM_DBG("trying to acquire dmq_node_list->lock\n");
 	lock_get(&dmq_node_list->lock);
+	LM_DBG("acquired dmq_node_list->lock\n");
 	cur_node = dmq_node_list->nodes;
 	while(cur_node) {
-		if (cur_node->local || cur_node->status == DMQ_NODE_ACTIVE) {
+		if(cur_node->local || cur_node->status == DMQ_NODE_ACTIVE) {
 			LM_DBG("body_len = %d - clen = %d\n", body->len, clen);
 			/* body->len - clen - 2 bytes left to write - including the \r\n */
-			slen = build_node_str(cur_node, body->s + clen, body->len - clen - 2);
+			slen = build_node_str(
+					cur_node, body->s + clen, body->len - clen - 2);
 			if(slen < 0) {
 				LM_ERR("cannot build_node_string\n");
 				goto error;
@@ -555,10 +645,12 @@ str *build_notification_body()
 		cur_node = cur_node->next;
 	}
 	lock_release(&dmq_node_list->lock);
+	LM_DBG("released dmq_node_list->lock\n");
 	body->len = clen;
 	return body;
 error:
 	lock_release(&dmq_node_list->lock);
+	LM_DBG("released dmq_node_list->lock\n");
 	pkg_free(body->s);
 	pkg_free(body);
 	return NULL;
@@ -590,42 +682,99 @@ int request_nodelist(dmq_node_t *node, int forward)
 int notification_resp_callback_f(
 		struct sip_msg *msg, int code, dmq_node_t *node, void *param)
 {
-	int ret;
 	int nodes_recv;
 	str_list_t *slp;
 
-	LM_DBG("notification_callback_f triggered [%p %d %p]\n", msg, code, param);
+	LM_DBG("triggered [%p %d %p]\n", msg, code, param);
 	if(code == 200) {
+		if(dmq_fail_count_enabled) {
+			/* reset node fail counter */
+			reset_dmq_node_fail_count(dmq_node_list, node);
+		}
+
 		/* be sure that the node that answered is in active state */
 		update_dmq_node_status(dmq_node_list, node, DMQ_NODE_ACTIVE);
 		nodes_recv = extract_node_list(dmq_node_list, msg);
 		LM_DBG("received %d new or changed nodes\n", nodes_recv);
 		if(dmq_init_callback_done && !*dmq_init_callback_done) {
 			*dmq_init_callback_done = 1;
-			run_init_callbacks();
+			run_init_callbacks(dmq_init_with_single ? node : NULL);
 		}
 	} else if(code == 408) {
+		LM_WARN("timeout: previous fail_count=%d fail_threshold_not_active=%d "
+				"fail_threshold_disabled=%d "
+				"host=%.*s port=%.*s\n",
+				node->fail_count, dmq_fail_count_threshold_not_active,
+				dmq_fail_count_threshold_disabled, node->uri.host.len,
+				node->uri.host.s, node->uri.port.len, node->uri.port.s);
+
+		if(node->status == DMQ_NODE_DISABLED) {
+			/* Keep the node disabled; do not delete. Deleting and re-adding from
+			 * a stale cluster body retriggers peer-up/down while the peer is
+			 * still unreachable. Recovery is DISABLED -> ACTIVE via extract. */
+			LM_DBG("timeout on disabled node %.*s - keep disabled, no delete\n",
+					STR_FMT(&node->orig_uri));
+			return 0;
+		}
+
+		if(dmq_fail_count_enabled) {
+			/* alwaws increment fail_count here and possibly update state */
+			update_dmq_node_status_on_timeout(dmq_node_list, node,
+					(DMQ_NODE_ACTIVE | DMQ_NODE_NOT_ACTIVE
+							| DMQ_NODE_DISABLED));
+			return 0;
+		}
+
 		/* TODO this probably do not work for dmq_multi_notify */
 		slp = dmq_notification_address_list;
-		while (slp != NULL) {
+		while(slp != NULL) {
 			if(STR_EQ(node->orig_uri, slp->s)) {
 				LM_ERR("not deleting notification peer [%.*s]\n",
-					STR_FMT(&slp->s));
-				update_dmq_node_status(dmq_node_list, node, DMQ_NODE_PENDING);
+						STR_FMT(&slp->s));
+				update_dmq_node_status(
+						dmq_node_list, node, DMQ_NODE_NOT_ACTIVE);
 				return 0;
 			}
 			slp = slp->next;
 		}
-		if (node->status == DMQ_NODE_DISABLED) {
-			/* deleting node - the server did not respond */
-			LM_ERR("deleting server node %.*s because of failed request\n",
-				STR_FMT(&node->orig_uri));
-			ret = del_dmq_node(dmq_node_list, node);
-			LM_DBG("del_dmq_node returned %d\n", ret);
+
+		/* update status only if fail_count mechanism is disabled
+		 * otherwise, let fail_count reach threshold before update status */
+		if(!dmq_remove_inactive) {
+			/* put the node in not_active state */
+			update_dmq_node_status(dmq_node_list, node, DMQ_NODE_NOT_ACTIVE);
 		} else {
 			/* put the node in disabled state and wait for the next ping before deleting it */
 			update_dmq_node_status(dmq_node_list, node, DMQ_NODE_DISABLED);
 		}
 	}
+	return 0;
+}
+
+/**
+ * @brief default response callback
+ */
+int default_resp_callback_f(
+		struct sip_msg *msg, int code, dmq_node_t *node, void *param)
+{
+	LM_DBG("triggered [%p %d %p]\n", msg, code, param);
+
+	/* if node timeout */
+	if(code == 408) {
+		LM_WARN("timeout: previous fail_count=%d fail_threshold_not_active=%d "
+				"fail_threshold_disabled=%d "
+				"host=%.*s port=%.*s\n",
+				node->fail_count, dmq_fail_count_threshold_not_active,
+				dmq_fail_count_threshold_disabled, node->uri.host.len,
+				node->uri.host.s, node->uri.port.len, node->uri.port.s);
+
+		if(dmq_fail_count_enabled) {
+			/* increment fail_count here and possibly update state, if node in active state */
+			/* this will prevent other modules that use DMQ to affect node state past the not_active state */
+			update_dmq_node_status_on_timeout(
+					dmq_node_list, node, DMQ_NODE_ACTIVE);
+		}
+	}
+
 	return 0;
 }

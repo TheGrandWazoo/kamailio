@@ -23,10 +23,8 @@ ifneq ($(XML2CFG),)
 	LIBS += $(shell $(XML2CFG) --libs)
 else
 	DEFS+=-I$(LOCALBASE)/include/libxml2 \
-      -I$(LOCALBASE)/include
+	-I$(LOCALBASE)/include
 	LIBS+=-L$(LOCALBASE)/lib -lxml2
 endif
 
-SERLIBPATH=../../lib
-SER_LIBS+=$(SERLIBPATH)/srdb1/srdb1
 include ../../Makefile.modules

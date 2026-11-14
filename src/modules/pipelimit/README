@@ -54,10 +54,12 @@ Daniel-Constantin Mierla
               6.1. pl.list
               6.2. pl.stats
               6.3. pl.set_pipe
-              6.4. pl.get_pipes
-              6.5. pl.set_pid
-              6.6. pl.get_pid
-              6.7. pl.push_load
+              6.4. pl.reset_pipe
+              6.5. pl.rm_pipe
+              6.6. pl.get_pipes
+              6.7. pl.set_pid
+              6.8. pl.get_pid
+              6.9. pl.push_load
 
    List of Examples
 
@@ -117,10 +119,12 @@ Chapter 1. Admin Guide
         6.1. pl.list
         6.2. pl.stats
         6.3. pl.set_pipe
-        6.4. pl.get_pipes
-        6.5. pl.set_pid
-        6.6. pl.get_pid
-        6.7. pl.push_load
+        6.4. pl.reset_pipe
+        6.5. pl.rm_pipe
+        6.6. pl.get_pipes
+        6.7. pl.set_pid
+        6.8. pl.get_pid
+        6.9. pl.push_load
 
 1. Overview
 
@@ -156,13 +160,14 @@ Chapter 1. Admin Guide
 
    The Random Early Detection Algorithm tries to circumvent the
    synchronization problem imposed by the tail drop algorithm by measuring
-   the average load and adapting the drop rate dynamically. When running
-   with the RED algorithm (enabled by default) Kamailio will return errors
-   to the Kamailio routing engine every n'th packet trying to evenly
-   spread the measured load of the last timer interval onto the current
-   interval. As a negative side effect Kamailio might drop messages
-   although the limit might not be reached within the interval. Decrease
-   the timer interval if you encounter this.
+   the average CPU load and adapting the drop rate dynamically. When
+   running with the RED algorithm (enabled by default) Kamailio will
+   return errors to the Kamailio routing engine every n'th packet trying
+   to evenly spread the measured load of the last timer interval onto the
+   current interval. As a negative side effect Kamailio might drop
+   messages although the limit might not be reached within the interval.
+   Decrease the timer interval if you encounter this. It requires
+   load_fetch bit 1 set (value 1).
 
    Network Algorithm (NETWORK)
 
@@ -170,7 +175,8 @@ Chapter 1. Admin Guide
    The total amount of bytes waiting to be consumed on all the network
    interfaces is retrieved once every timer_interval seconds. If the
    returned amount exceeds the limit specified in the modparam, pl_check()
-   returns false (negative value).
+   returns false (negative value). It requires load_fetch bit 2 set (value
+   2).
 
    Feedback Algorithm (FEEDBACK)
 
@@ -245,7 +251,7 @@ modparam("pipelimit", "db_url", "dbdriver://username:password@dbhost/dbname")
 
 4.3. plp_table_name (string)
 
-   Name of DB table where data definition for pipes is stores.
+   Name of DB table where data definition for pipes is stored.
 
    Default value is “pl_pipes”.
 
@@ -269,7 +275,7 @@ modparam("pipelimit", "plp_pipeid_column", "name")
 
    Name of 'limit' column.
 
-   Default value is “limit”.
+   Default value is “plimit”.
 
    Example 1.5. Set plp_limit_column parameter
 ...
@@ -321,14 +327,16 @@ modparam("pipelimit", "timer_mode", 1)
 4.9. load_fetch (integer)
 
    Control if the module should fetch the load for CPU and network
-   traffic. If set to 0, no load is fetched; if set to 1, the load is
-   fetched every timer interval.
+   traffic. If set to 0, no load is fetched; if bit 1 is set to 1 (value
+   1), the CPU load is fetched every timer interval; if bit 2 is set to 1
+   (value 2), the network load is fetched every timer interval. It can be
+   set to value 3 to fetch both CPU and network loads.
 
-   Default value is 1.
+   Default value is 0.
 
    Example 1.9. Set load_fetch parameter
 ...
-modparam("pipelimit", "load_fetch", 0)
+modparam("pipelimit", "load_fetch", 3)
 ...
 
 4.10. reply_code (integer)
@@ -511,10 +519,12 @@ with unexpected retcode=$var(check_result)\n");
    6.1. pl.list
    6.2. pl.stats
    6.3. pl.set_pipe
-   6.4. pl.get_pipes
-   6.5. pl.set_pid
-   6.6. pl.get_pid
-   6.7. pl.push_load
+   6.4. pl.reset_pipe
+   6.5. pl.rm_pipe
+   6.6. pl.get_pipes
+   6.7. pl.set_pid
+   6.8. pl.get_pid
+   6.9. pl.push_load
 
 6.1.  pl.list
 
@@ -542,7 +552,7 @@ kamctl rpc pl.list testid
 
    RPC Command Format:
 ...
-kamcmd pl.stats
+kamctl rpc pl.stats
 ...
 
 6.3.  pl.set_pipe
@@ -558,10 +568,38 @@ kamcmd pl.stats
 
    RPC Command Format:
 ...
-kamcmd pl.set_pipe 2 RED 10
+kamctl rpc pl.set_pipe 2 RED 10
 ...
 
-6.4.  pl.get_pipes
+6.4.  pl.reset_pipe
+
+   Reset the values associated with the pipe.
+
+   Name: pl.reset_pipe
+
+   Parameters:
+     * pipe_id - pipe id.
+
+   RPC Command Format:
+...
+kamctl rpc pl.reset_pipe p01
+...
+
+6.5.  pl.rm_pipe
+
+   Remove the pipe structure matching the given pipe id.
+
+   Name: pl.rm_pipe
+
+   Parameters:
+     * pipe_id - pipe id.
+
+   RPC Command Format:
+...
+kamctl rpc pl.rm_pipe p01
+...
+
+6.6.  pl.get_pipes
 
    Gets the list of in use pipes.
 
@@ -571,10 +609,10 @@ kamcmd pl.set_pipe 2 RED 10
 
    RPC Command Format:
 ...
-kamcmd pl.get_pipes
+kamctl rpc pl.get_pipes
 ...
 
-6.5.  pl.set_pid
+6.7.  pl.set_pid
 
    Sets the PID Controller parameters for the Feedback Algorithm.
 
@@ -587,10 +625,10 @@ kamcmd pl.get_pipes
 
    RPC Command Format:
 ...
-kamcmd pl.set_pid 0.5 0.5 0.5
+kamctl rpc pl.set_pid 0.5 0.5 0.5
 ...
 
-6.6.  pl.get_pid
+6.8.  pl.get_pid
 
    Gets the list of in use PID Controller parameters.
 
@@ -600,10 +638,10 @@ kamcmd pl.set_pid 0.5 0.5 0.5
 
    RPC Command Format:
 ...
-kamcmd pl.get_pid
+kamctl rpc pl.get_pid
 ...
 
-6.7.  pl.push_load
+6.9.  pl.push_load
 
    Force the value of the load parameter. This command is useful for
    testing the Feedback algorithm.
@@ -616,5 +654,5 @@ kamcmd pl.get_pid
 
    RPC Command Format:
 ...
-kamcmd pl.push_load 0.85
+kamctl rpc pl.push_load 0.85
 ...

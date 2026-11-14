@@ -30,6 +30,12 @@
 #define WL_CUSER 23
 #define BL_DST 24
 #define BL_SQL 25
+#define SECF_FIELD_DOMAIN 3
+#define SECF_FIELD_NAME 1
+#define SECF_FIELD_USER 2
+#define SECF_CONTACT_HEADER 3
+#define SECF_FROM_HEADER 1
+#define SECF_TO_HEADER 2
 
 typedef struct _secf_info
 {
@@ -50,23 +56,28 @@ typedef struct _secf_data
 	secf_info_t bl_last;
 } secf_data_t, *secf_data_p;
 
-extern secf_data_p secf_data;
+extern secf_data_p *secf_data;
+extern secf_data_p secf_data_1;
+extern secf_data_p secf_data_2;
 
 extern int *secf_stats;
 void secf_reset_stats(void);
 
 int secf_append_rule(int action, int type, str *value);
+int secf_remove_rule(int action, int type, str *value);
 
 /* Get header values from message */
 int secf_get_ua(struct sip_msg *msg, str *ua);
 int secf_get_from(struct sip_msg *msg, str *name, str *user, str *domain);
 int secf_get_to(struct sip_msg *msg, str *name, str *user, str *domain);
 int secf_get_contact(struct sip_msg *msg, str *user, str *domain);
+int secf_get_contact_with_name(
+		struct sip_msg *msg, str *name, str *user, str *domain);
 
 /* Database functions */
 int secf_init_db(void);
 int secf_init_data(void);
-void secf_free_data(void);
+void secf_free_data(secf_data_p secf_fdata);
 int secf_load_db(void);
 
 /* Extern variables */
@@ -76,6 +87,9 @@ extern str secf_action_col;
 extern str secf_type_col;
 extern str secf_data_col;
 extern int secf_dst_exact_match;
+extern int secf_reload_delta;
+extern int secf_reload_interval;
+extern time_t *secf_rpc_reload_time;
 
 /* RPC commands */
 void secf_rpc_reload(rpc_t *rpc, void *ctx);
@@ -83,7 +97,10 @@ void secf_rpc_print(rpc_t *rpc, void *ctx);
 void secf_rpc_stats(rpc_t *rpc, void *ctx);
 void secf_rpc_stats_reset(rpc_t *rpc, void *ctx);
 void secf_rpc_add_dst(rpc_t *rpc, void *ctx);
+void secf_rpc_del_dst(rpc_t *rpc, void *ctx);
 void secf_rpc_add_bl(rpc_t *rpc, void *ctx);
+void secf_rpc_del_bl(rpc_t *rpc, void *ctx);
 void secf_rpc_add_wl(rpc_t *rpc, void *ctx);
+void secf_rpc_del_wl(rpc_t *rpc, void *ctx);
 
 #endif

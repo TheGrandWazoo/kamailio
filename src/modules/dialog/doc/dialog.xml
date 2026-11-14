@@ -63,20 +63,25 @@
 			<surname>Klingenmeyer</surname>
 			<email>julien.klingenmeyer@corp.ovh.com</email>
 		</editor>
+		<editor>
+			<firstname>Simone</firstname>
+			<surname>de Blasiis</surname>
+			<email>simone.deblasiis@eis.it</email>
+		</editor>
 	</authorgroup>
 	<copyright>
 		<year>2006</year>
 		<holder>Voice Sistem SRL</holder>
 	</copyright>
 	<copyright>
-		<year>2011</year>
-		<holder>Carsten Bock, http://www.ng-voice.com</holder>
+		<year>2011, 2022</year>
+		<holder>ng-voice GmbH, Carsten Bock, http://www.ng-voice.com</holder>
 	</copyright>
 	</bookinfo>
 	<toc></toc>
-	
+
 	<xi:include href="dialog_admin.xml"/>
 	<xi:include href="dialog_devel.xml"/>
 	<xi:include href="dialog_faq.xml"/>
-	
+
 </book>

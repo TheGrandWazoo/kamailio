@@ -87,11 +87,38 @@ modparam("phonenum", "smode", 0)
 </programlisting>
 	    </example>
 	</section>
+	<section id="phonenum.p.shortcode">
+	    <title><varname>shortcode</varname> (int)</title>
+	    <para>
+		Enable validation for short numbers (service codes) when matching with
+		<function moreinfo="none">phonenum_match_cn()</function> and a region
+		code is provided.
+	    </para>
+	    <para>
+		<emphasis>
+		    Default value is <quote>0</quote> (disabled).
+		</emphasis>
+	    </para>
+	    <example>
+		<title>Set <varname>shortcode</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("phonenum", "shortcode", 1)
+...
+if(phonenum_match_cn("115", "DE", "src")) {
+    if($phn(src=&gt;valid)==1) {
+        xlog("DE short code accepted: $phn(src=&gt;natnum)\n");
+    }
+}
+...
+</programlisting>
+	    </example>
+	</section>
 	<section id="phonenum.p.resid">
 	    <title><varname>resid</varname> (str)</title>
 	    <para>
 		Preregister result container id during initialization, enabling the use
-		of the module in KEMI scripts. In native &kamailio;.cfg file, registration
+		of the module in KEMI scripts. In native &kamailioconfig; file, registration
 		is done when parsing config and finding variables.
 	    </para>
 	    <para>
@@ -205,7 +232,10 @@ if(phonenum_match_cn("1-484-555-8888", "US", "src")) {
 					valid result; 0 otherwise
 				</para></listitem>
 				<listitem><para>
-					<emphasis>normalized</emphasis> - normalized phone number
+					<emphasis>normalized</emphasis> - normalized (E164) phone number
+				</para></listitem>
+				<listitem><para>
+					<emphasis>natnum</emphasis> - nationally formatted phone number
 				</para></listitem>
 				<listitem><para>
 					<emphasis>cctel</emphasis> - country code for phone number
@@ -232,4 +262,3 @@ if(phonenum_match_cn("1-484-555-8888", "US", "src")) {
 	</section>
 
 </chapter>
-

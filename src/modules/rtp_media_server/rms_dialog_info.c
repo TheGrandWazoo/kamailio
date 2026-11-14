@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -23,12 +25,13 @@
 extern rms_dialog_info_t *rms_dialog_list;
 extern int in_rms_process;
 
-gen_lock_t *dialog_list_mutex;
+gen_lock_t *dialog_list_mutex = NULL;
 
 static void rms_action_free(rms_dialog_info_t *si)
 {
 	rms_action_t *a, *tmp;
-	if (!si->action.prev) return;
+	if(!si->action.prev)
+		return;
 	clist_foreach(&si->action, a, next)
 	{
 		tmp = a;
@@ -64,26 +67,36 @@ int rms_dialog_list_init()
 void rms_dialog_list_free()
 {
 	lock_destroy(dialog_list_mutex);
-	lock_dealloc((void*)dialog_list_mutex);
+	lock_dealloc((void *)dialog_list_mutex);
 	shm_free(rms_dialog_list);
 }
 
-char *rms_dialog_state_toa(rms_dialog_state_t state) {
-	if (state == 0) return "RMS_ST_DEFAULT";
-	else if (state == 1) return "RMS_ST_CONNECTING";
-	else if (state == 2) return "RMS_ST_CONNECTED";
-	else if (state == 3) return "RMS_ST_CONNECTED_ACK";
-	else if (state == 4) return "RMS_ST_DISCONNECTING";
-	else if (state == 5) return "RMS_ST_DISCONNECTED";
+char *rms_dialog_state_toa(rms_dialog_state_t state)
+{
+	if(state == 0)
+		return "RMS_ST_DEFAULT";
+	else if(state == 1)
+		return "RMS_ST_CONNECTING";
+	else if(state == 2)
+		return "RMS_ST_CONNECTED";
+	else if(state == 3)
+		return "RMS_ST_CONNECTED_ACK";
+	else if(state == 4)
+		return "RMS_ST_DISCONNECTING";
+	else if(state == 5)
+		return "RMS_ST_DISCONNECTED";
 	return "RMS_ST_UNKNOWN";
 }
 
 int rms_dialog_info_set_state(rms_dialog_info_t *di, rms_dialog_state_t state)
 {
-	if (state <= di->state) {
-		LM_ERR("[%s] >> [%s] (invalid state transition) call-id[%s]\n", rms_dialog_state_toa(di->state), rms_dialog_state_toa(state), di->callid.s);
+	if(state <= di->state) {
+		LM_ERR("[%s] >> [%s] (invalid state transition) call-id[%s]\n",
+				rms_dialog_state_toa(di->state), rms_dialog_state_toa(state),
+				di->callid.s);
 	} else {
-		LM_NOTICE("[%s] >> [%s] call-id[%s]\n", rms_dialog_state_toa(di->state), rms_dialog_state_toa(state), di->callid.s);
+		LM_NOTICE("[%s] >> [%s] call-id[%s]\n", rms_dialog_state_toa(di->state),
+				rms_dialog_state_toa(state), di->callid.s);
 		di->state = state;
 	}
 	return 1;
@@ -130,7 +143,7 @@ rms_dialog_info_t *rms_dialog_search_sync(struct sip_msg *msg)
 
 void rms_dialog_add(rms_dialog_info_t *si)
 {
-	if (in_rms_process) {
+	if(in_rms_process) {
 		clist_append(rms_dialog_list, si, next, prev);
 	} else {
 		lock(dialog_list_mutex);
@@ -141,7 +154,7 @@ void rms_dialog_add(rms_dialog_info_t *si)
 
 void rms_dialog_rm(rms_dialog_info_t *si)
 {
-	if (in_rms_process) {
+	if(in_rms_process) {
 		clist_append(rms_dialog_list, si, next, prev);
 	} else {
 		lock(dialog_list_mutex);
@@ -156,7 +169,9 @@ int rms_dialog_free(rms_dialog_info_t *si)
 	rms_sdp_info_free(&si->sdp_info_offer);
 	rms_sdp_info_free(&si->sdp_info_answer);
 	if(si->media.pt) {
-		shm_free(si->media.pt); // TODO: should be destroyed in  compatible way from MS manager process
+		shm_free(
+				si->media
+						.pt); // TODO: should be destroyed in  compatible way from MS manager process
 		si->media.pt = NULL;
 	}
 	if(si->callid.s) {
@@ -179,6 +194,10 @@ int rms_dialog_free(rms_dialog_info_t *si)
 		shm_free(si->local_uri.s);
 		si->local_uri.s = NULL;
 	}
+	if(si->contact_user.s) {
+		shm_free(si->contact_user.s);
+		si->contact_user.s = NULL;
+	}
 	shm_free(si);
 	si = NULL;
 	return 1;
@@ -199,27 +218,31 @@ rms_dialog_info_t *rms_dialog_new_bleg(struct sip_msg *msg)
 		return NULL;
 	rms_dialog_info_t *si = shm_malloc(sizeof(rms_dialog_info_t));
 	if(!si) {
-		LM_ERR("can not allocate dialog info !\n");
+		LM_ERR("can not allocate dialog info!\n");
 		goto error;
 	}
 	memset(si, 0, sizeof(rms_dialog_info_t));
 
 	if(!rms_str_dup(&si->callid, &msg->callid->body, 1)) {
-		LM_ERR("can not get callid .\n");
+		LM_ERR("can not get callid\n");
 		goto error;
 	}
-	if(!rms_str_dup(&si->remote_uri, &msg->from->body, 1))
+	if(!rms_str_dup(&si->remote_uri, &msg->from->body, 1)) {
 		goto error;
+	}
 	str ip;
 	ip.s = ip_addr2a(&msg->rcv.dst_ip);
 	ip.len = strlen(ip.s);
-	if(!rms_str_dup(&si->local_ip, &ip, 1))
+	if(!rms_str_dup(&si->local_ip, &ip, 1)) {
 		goto error;
+	}
 	clist_init(&si->action, next, prev);
 	return si;
 error:
 	LM_ERR("can not create dialog info.\n");
-	rms_dialog_free(si);
+	if(si) {
+		rms_dialog_free(si);
+	}
 	return NULL;
 }
 
@@ -244,6 +267,15 @@ rms_dialog_info_t *rms_dialog_new(struct sip_msg *msg)
 		goto error;
 	if(!rms_str_dup(&si->local_uri, &msg->to->body, 1))
 		goto error;
+	if(parse_to_header(msg) < 0 || get_to(msg) == NULL) {
+		LM_ERR("can not parse To header.\n");
+		goto error;
+	}
+	if(get_to(msg)->parsed_uri.user.s != NULL
+			&& get_to(msg)->parsed_uri.user.len > 0) {
+		if(!rms_str_dup(&si->contact_user, &get_to(msg)->parsed_uri.user, 1))
+			goto error;
+	}
 	str ip;
 	ip.s = ip_addr2a(&msg->rcv.dst_ip);
 	ip.len = strlen(ip.s);
@@ -270,7 +302,9 @@ rms_dialog_info_t *rms_dialog_new(struct sip_msg *msg)
 	return si;
 error:
 	LM_ERR("can not create dialog info.\n");
-	rms_dialog_free(si);
+	if(si) {
+		rms_dialog_free(si);
+	}
 	return NULL;
 }
 

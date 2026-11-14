@@ -6,12 +6,17 @@ include $(COREPATH)/Makefile.defs
 include $(COREPATH)/Makefile.targets
 
 auto_gen=
-RELEASE=1.5
+RELEASE=1.6
 UTIL_SRC_NAME=kamcmd
+# Pass CUSTOM_NAME to overwrite the kamcmd/sercmd bin name
+ifeq ($(CUSTOM_NAME),)
 ifeq ($(FLAVOUR),ser)
-	NAME?=sercmd
+	NAME=sercmd
 else
-	NAME?=kamcmd
+	NAME=kamcmd
+endif
+else
+	NAME=$(CUSTOM_NAME)
 endif
 
 readline_localpath=$(LOCALBASE)/include/readline/readline.h
@@ -80,6 +85,7 @@ endif
 # detect libreadline
 ifneq ($(BUILDER),)
 	DEFS += $(shell $(BUILDER) --cflags readline)
+	DEFS+=-DUSE_READLINE
 	LIBS += $(shell $(BUILDER) --libs readline)
 	use_readline := 1
 else

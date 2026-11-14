@@ -6,6 +6,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -34,15 +36,22 @@ typedef char HASH[HASHLEN];
 
 
 #define HASHHEXLEN 32
-typedef char HASHHEX[HASHHEXLEN+1];
+typedef char HASHHEX[HASHHEXLEN + 1];
 
 
 /*
  * Type of algorithm used
  */
-typedef enum {
-	HA_MD5,      /* Plain MD5 */
-	HA_MD5_SESS  /* MD5-Session */
+typedef enum
+{
+	HA_MD5,			   /* Plain MD5 */
+	HA_MD5_SESS,	   /* MD5-Session */
+	HA_SHA256,		   /* SHA-256 */
+	HA_SHA256_SESS,	   /* SHA-256-Session */
+	HA_SHA512,		   /* SHA-512 */
+	HA_SHA512_SESS,	   /* SHA-512-Session */
+	HA_SHA512_256,	   /* SHA-512-256 */
+	HA_SHA512_256_SESS /* SHA-512-256-Session */
 } ha_alg_t;
 
 
@@ -55,42 +64,42 @@ void cvt_hex(HASH Bin, HASHHEX Hex);
 /*
  * calculate H(A1) as per HTTP Digest spec
  */
-typedef void (*calc_HA1_t)(ha_alg_t _alg,      /* Type of algorithm */
-		str* _username,     /* username */
-		str* _realm,        /* realm */
-		str* _password,     /* password */
-		str* _nonce,        /* nonce string */
-		str* _cnonce,       /* cnonce */
-		HASHHEX _sess_key); /* Result will be stored here */
-void calc_HA1_md5(ha_alg_t _alg,      /* Type of algorithm */
-		str* _username,     /* username */
-		str* _realm,        /* realm */
-		str* _password,     /* password */
-		str* _nonce,        /* nonce string */
-		str* _cnonce,       /* cnonce */
-		HASHHEX _sess_key); /* Result will be stored here */
+typedef void (*calc_HA1_t)(ha_alg_t _alg, /* Type of algorithm */
+		str *_username,					  /* username */
+		str *_realm,					  /* realm */
+		str *_password,					  /* password */
+		str *_nonce,					  /* nonce string */
+		str *_cnonce,					  /* cnonce */
+		char *_sess_key);				  /* Result will be stored here */
+void calc_HA1_md5(ha_alg_t _alg,		  /* Type of algorithm */
+		str *_username,					  /* username */
+		str *_realm,					  /* realm */
+		str *_password,					  /* password */
+		str *_nonce,					  /* nonce string */
+		str *_cnonce,					  /* cnonce */
+		HASHHEX _sess_key);				  /* Result will be stored here */
 
 
 /* calculate request-digest/response-digest as per HTTP Digest spec */
-typedef void (*calc_response_t)(HASHHEX _ha1,       /* H(A1) */
-		str* _nonce,        /* nonce from server */
-		str* _nc,           /* 8 hex digits */
-		str* _cnonce,       /* client nonce */
-		str* _qop,          /* qop-value: "", "auth", "auth-int" */
-		int _auth_int,      /* 1 if auth-int is used */
-		str* _method,       /* method from the request */
-		str* _uri,          /* requested URL */
-		HASHHEX _hentity,   /* H(entity body) if qop="auth-int" */
-		HASHHEX _response); /* request-digest or response-digest */
-void calc_response_md5(HASHHEX _ha1,       /* H(A1) */
-		str* _nonce,        /* nonce from server */
-		str* _nc,           /* 8 hex digits */
-		str* _cnonce,       /* client nonce */
-		str* _qop,          /* qop-value: "", "auth", "auth-int" */
-		int _auth_int,      /* 1 if auth-int is used */
-		str* _method,       /* method from the request */
-		str* _uri,          /* requested URL */
-		HASHHEX _hentity,   /* H(entity body) if qop="auth-int" */
-		HASHHEX _response); /* request-digest or response-digest */
+typedef void (*calc_response_t)(HASHHEX _ha1, /* H(A1) */
+		str *_nonce,						  /* nonce from server */
+		str *_nc,							  /* 8 hex digits */
+		str *_cnonce,						  /* client nonce */
+		str *_qop,					 /* qop-value: "", "auth", "auth-int" */
+		int _auth_int,				 /* 1 if auth-int is used */
+		str *_method,				 /* method from the request */
+		str *_uri,					 /* requested URL */
+		HASHHEX _hentity,			 /* H(entity body) if qop="auth-int" */
+		HASHHEX _response);			 /* request-digest or response-digest */
+void calc_response_md5(HASHHEX _ha1, /* H(A1) */
+		str *_nonce,				 /* nonce from server */
+		str *_nc,					 /* 8 hex digits */
+		str *_cnonce,				 /* client nonce */
+		str *_qop,					 /* qop-value: "", "auth", "auth-int" */
+		int _auth_int,				 /* 1 if auth-int is used */
+		str *_method,				 /* method from the request */
+		str *_uri,					 /* requested URL */
+		HASHHEX _hentity,			 /* H(entity body) if qop="auth-int" */
+		HASHHEX _response);			 /* request-digest or response-digest */
 
 #endif /* RFC2617_H */

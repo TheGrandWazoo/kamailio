@@ -1,4 +1,4 @@
-/* 
+/*
  * TLS module
  *
  * Copyright (C) 2010 iptelorg GmbH
@@ -34,8 +34,8 @@
 typedef struct sbuffer_queue tls_ct_q;
 
 
-#define tls_ct_q_empty(bq) ((bq)==0 || (bq)->first==0)
-#define tls_ct_q_non_empty(bq) ((bq) && (bq)->first!=0)
+#define tls_ct_q_empty(bq) ((bq) == 0 || (bq)->first == 0)
+#define tls_ct_q_non_empty(bq) ((bq) && (bq)->first != 0)
 
 
 /**
@@ -48,15 +48,15 @@ typedef struct sbuffer_queue tls_ct_q;
  * @param min_buf_size - min size to allocate for new buffer elements
  * @return 0 on success, -1 on error (mem. allocation)
  */
-inline static int tls_ct_q_add(tls_ct_q** ct_q, const void* data,
-								unsigned int size, unsigned int min_buf_size)
+inline static int tls_ct_q_add(tls_ct_q **ct_q, const void *data,
+		unsigned int size, unsigned int min_buf_size)
 {
-	tls_ct_q* q;
-	
+	tls_ct_q *q;
+
 	q = *ct_q;
-	if (likely(q == 0)){
-		q=shm_malloc(sizeof(tls_ct_q));
-		if (unlikely(q==0))
+	if(likely(q == 0)) {
+		q = shm_malloc(sizeof(tls_ct_q));
+		if(unlikely(q == 0))
 			goto error;
 		memset(q, 0, sizeof(tls_ct_q));
 		*ct_q = q;
@@ -67,22 +67,21 @@ error:
 }
 
 
-
 /**
  * @brief Destroy a buffer queue
- * 
+ *
  * Everything is destroyed from a buffer queue (shm_free()'d), included the queue head.
  * @warning it does no attempt to synchronize access/lock. If needed it should
  * be called under lock.
  * @param **ct_q - double pointer to the queue
  * @return - number of bytes that used to be queued (>=0).
  */
-inline static unsigned int tls_ct_q_destroy(tls_ct_q** ct_q)
+inline static unsigned int tls_ct_q_destroy(tls_ct_q **ct_q)
 {
 	unsigned int ret;
-	
+
 	ret = 0;
-	if (likely(ct_q && *ct_q)) {
+	if(likely(ct_q && *ct_q)) {
 		ret = sbufq_destroy(*ct_q);
 		shm_free(*ct_q);
 		*ct_q = 0;
@@ -91,11 +90,10 @@ inline static unsigned int tls_ct_q_destroy(tls_ct_q** ct_q)
 }
 
 
-
 /**
  * @brief Tries to flush the tls clear text queue
- * 
- * Tries to flush as much as possible from the given queue, using the 
+ *
+ * Tries to flush as much as possible from the given queue, using the
  * given callback.
  * @warning it does no attempt to synchronize access/lock. If needed it should
  * be called under lock.
@@ -107,7 +105,7 @@ inline static unsigned int tls_ct_q_destroy(tls_ct_q** ct_q)
  *                    flush_f(flush_p, const void* buf, unsigned size).
  *                    It should return the number of bytes "flushed" on
  *                    success, or <0 on error. If the number of bytes
- *                    "flushed" is smaller then the requested size, it
+ *                    "flushed" is smaller than the requested size, it
  *                    would be assumed that no more bytes can be flushed
  *                    and sbufq_flush will exit.
  * @param flush_p1 - parameter for the flush function callback.
@@ -117,15 +115,12 @@ inline static unsigned int tls_ct_q_destroy(tls_ct_q** ct_q)
  *            always set and it should be used to check for errors, since
  *            a flush_f() failure will not result in a negative return.
  */
-inline static int tls_ct_q_flush(tls_ct_q** tc_q, int* flags,
-								int (*flush_f)(void* p1, void* p2,
-												const void* buf,
-												unsigned size),
-								void* flush_p1, void* flush_p2)
+inline static int tls_ct_q_flush(tls_ct_q **tc_q, int *flags,
+		int (*flush_f)(void *p1, void *p2, const void *buf, unsigned size),
+		void *flush_p1, void *flush_p2)
 {
-	return *tc_q?sbufq_flush(*tc_q, flags, flush_f, flush_p1, flush_p2):0;
+	return *tc_q ? sbufq_flush(*tc_q, flags, flush_f, flush_p1, flush_p2) : 0;
 }
-
 
 
 #endif /*__tls_ct_q_h*/

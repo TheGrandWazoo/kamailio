@@ -156,6 +156,7 @@ modparam("janssonrpcc", "result_pv", "$var(result)")
      * priority - server are grouped by priority. Servers with higher
        priority (lower number) are used first. Default is 0. (optional
        when using addr, invalid otherwise).
+     * md5_password - password for tcp md5 authorization (optional).
      * weight - functions the same as a DNS SRV weight. Requests are
        distributed between servers of the same priority proportional to
        their weight. Default is 1. (optional when using addr, invalid
@@ -167,7 +168,7 @@ modparam("janssonrpcc", "server", "conn=tests;srv=_test1._tcp.example.net");
 modparam("janssonrpcc", "server", "conn=tests;srv=_test2._tcp.example.net");
 modparam("janssonrpcc", "server", "conn=local;addr=localhost;port=8080;priority=
 10;weight=10");
-modparam("janssonrpcc", "server", "conn=user_db;addr=rpc.prod.exmaple.net;port=5
+modparam("janssonrpcc", "server", "conn=user_db;addr=rpc.prod.example.net;port=5
 060;priority=10;weight=10");
 ...
 

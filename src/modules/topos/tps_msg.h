@@ -21,9 +21,9 @@
 
 /*!
  * \file
- * \brief Kamailio topoh ::
- * \ingroup topoh
- * Module: \ref topoh
+ * \brief Kamailio topos ::
+ * \ingroup topos
+ * Module: \ref topos
  */
 
 #ifndef _TOPOS_MSG_H_
@@ -31,12 +31,20 @@
 
 #include "../../core/parser/msg_parser.h"
 
+#define TPS_SPLIT_VIA (1 << 0)
+#define TPS_SPLIT_RECORD_ROUTE (1 << 1)
+#define TPS_SPLIT_ROUTE (1 << 2)
+
 int tps_update_hdr_replaces(sip_msg_t *msg);
-char* tps_msg_update(sip_msg_t *msg, unsigned int *olen);
+char *tps_msg_update(sip_msg_t *msg, unsigned int *olen);
 int tps_skip_msg(sip_msg_t *msg);
 
 int tps_request_received(sip_msg_t *msg, int dialog);
 int tps_response_received(sip_msg_t *msg);
 int tps_request_sent(sip_msg_t *msg, int dialog, int local);
 int tps_response_sent(sip_msg_t *msg);
+int tps_mask_callid(sip_msg_t *msg);
+int tps_unmask_callid(sip_msg_t *msg);
+int tps_get_param_value(str *in, str *name, str *value);
+int tps_remove_internal_headers(sip_msg_t *msg);
 #endif

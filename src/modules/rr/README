@@ -47,6 +47,7 @@ Bogdan-Andrei Iancu
               4.7. force_send_socket (int)
               4.8. ignore_sips (int)
               4.9. sockname_mode (int)
+              4.10. loose_route_mode (int)
 
         5. Functions
 
@@ -58,9 +59,16 @@ Bogdan-Andrei Iancu
               5.6. record_route_preset(string [,string2])
               5.7. record_route_advertised_address(address)
               5.8. add_rr_param(param)
-              5.9. check_route_param(re)
-              5.10. is_direction(dir)
-              5.11. rr_next_hop_route()
+              5.9. rr_cookie_add(name, sval)
+              5.10. rr_cookie_check(name, sval, tdiff)
+              5.11. rr_cookie_flinit(ival)
+              5.12. rr_cookie_flset(idx)
+              5.13. rr_cookie_flreset(idx)
+              5.14. rr_cookie_flisset(idx)
+              5.15. rr_cookie_flfetch(name)
+              5.16. check_route_param(re)
+              5.17. is_direction(dir)
+              5.18. rr_next_hop_route()
 
         6. Exported Pseudo Variables
 
@@ -72,11 +80,11 @@ Bogdan-Andrei Iancu
 
               1.1. record_route(string)
               1.2. record_route_advertised_address(string)
-              1.3. add_rr_param( msg, param)
-              1.4. check_route_param( msg, re)
-              1.5. is_direction( msg, dir)
-              1.6. get_route_param( msg, name, val)
-              1.7. register_rrcb( callback, param)
+              1.3. add_rr_param(msg, param)
+              1.4. check_route_param(msg, re)
+              1.5. is_direction(msg, dir)
+              1.6. get_route_param(msg, name, val)
+              1.7. register_rrcb(callback, param)
 
         2. Examples
 
@@ -93,18 +101,26 @@ Bogdan-Andrei Iancu
    1.9. Set force_send_socket parameter
    1.10. Set ignore_sips parameter
    1.11. Set sockname_mode parameter
-   1.12. loose_route usage
-   1.13. loose_route_preloaded usage
-   1.14. loose_route_mode usage
-   1.15. record_route usage
-   1.16. remove_record_route usage
-   1.17. record_route_preset usage
-   1.18. record_route_advertised_address usage
-   1.19. add_rr_param usage
-   1.20. check_route_param usage
-   1.21. is_direction usage
-   1.22. rr_next_hop_route usage
-   1.23. $route_uri
+   1.12. Set loose_route_mode parameter
+   1.13. loose_route usage
+   1.14. loose_route_preloaded usage
+   1.15. loose_route_mode usage
+   1.16. record_route usage
+   1.17. remove_record_route usage
+   1.18. record_route_preset usage
+   1.19. record_route_advertised_address usage
+   1.20. add_rr_param usage
+   1.21. rr_cookie_add usage
+   1.22. rr_cookie_check usage
+   1.23. rr_cookie_flinit usage
+   1.24. rr_cookie_flset usage
+   1.25. rr_cookie_flreset usage
+   1.26. rr_cookie_flisset usage
+   1.27. rr_cookie_flfetch usage
+   1.28. check_route_param usage
+   1.29. is_direction usage
+   1.30. rr_next_hop_route usage
+   1.31. $route_uri
    2.1. record_route usage
    2.2. record_route_advertised_address usage
    2.3. Loading RR module's API from another module
@@ -131,6 +147,7 @@ Chapter 1. Admin Guide
         4.7. force_send_socket (int)
         4.8. ignore_sips (int)
         4.9. sockname_mode (int)
+        4.10. loose_route_mode (int)
 
    5. Functions
 
@@ -142,9 +159,16 @@ Chapter 1. Admin Guide
         5.6. record_route_preset(string [,string2])
         5.7. record_route_advertised_address(address)
         5.8. add_rr_param(param)
-        5.9. check_route_param(re)
-        5.10. is_direction(dir)
-        5.11. rr_next_hop_route()
+        5.9. rr_cookie_add(name, sval)
+        5.10. rr_cookie_check(name, sval, tdiff)
+        5.11. rr_cookie_flinit(ival)
+        5.12. rr_cookie_flset(idx)
+        5.13. rr_cookie_flreset(idx)
+        5.14. rr_cookie_flisset(idx)
+        5.15. rr_cookie_flfetch(name)
+        5.16. check_route_param(re)
+        5.17. is_direction(dir)
+        5.18. rr_next_hop_route()
 
    6. Exported Pseudo Variables
 
@@ -152,13 +176,13 @@ Chapter 1. Admin Guide
 
 1. Overview
 
-   The module contains record routing logic
+   The module contains record routing logic.
 
 2. Dialog support
 
    Kamailio is basically only a transaction stateful proxy, without any
    dialog support build in. There are many features/services which
-   actually requires a dialog awareness, like storing the information in
+   actually require a dialog awareness, like storing the information in
    the dialog creation stage, information which will be used during the
    whole dialog existence.
 
@@ -181,9 +205,9 @@ Chapter 1. Admin Guide
    will be used - Record-Route parameters mirroring are reinforced by RFC
    3261 (see 12.1.1 UAS behavior).
 
-   For this purpose, the modules offers the following functions:
+   For this purpose, the module offers the following functions:
      * add_rr_param() - see Section 5.8, “add_rr_param(param)”
-     * check_route_param() - see Section 5.9, “check_route_param(re)”
+     * check_route_param() - see Section 5.16, “check_route_param(re)”
 
    Example 1.1. Dialog support in RR module
 ...
@@ -230,6 +254,7 @@ UAC                       Kamailio PROXY                          UAS
    4.7. force_send_socket (int)
    4.8. ignore_sips (int)
    4.9. sockname_mode (int)
+   4.10. loose_route_mode (int)
 
 4.1. enable_full_lr (integer)
 
@@ -327,10 +352,10 @@ modparam("rr", "enable_socket_mismatch_warning", 0)
 
 4.6. custom_user_avp (avp string)
 
-   When enable_username is enabled, a call to record_route will add the
+   When add_username is enabled, a call to record_route will add the
    username of the RequestURI to the Record-Route URI. This parameter
-   allows you to setup an AVP with which you can customise the username to
-   be added in the Record-Route URI.
+   allows you to set up an AVP with which you can customise the username
+   to be added in the Record-Route URI.
 
    Default value: if not set, the std add_username behaviour is used -
    i.e. Request URI username.
@@ -383,6 +408,19 @@ modparam("rr", "ignore_sips", 1)
 modparam("rr", "sockname_mode", 1)
 ...
 
+4.10. loose_route_mode (int)
+
+   Controls the behaviour of loose_route() in the same manner as the value
+   of the parameter for for function loose_route_mode(val), in a global
+   manner.
+
+   Default value is 0.
+
+   Example 1.12. Set loose_route_mode parameter
+...
+modparam("rr", "loose_route_mode", 1)
+...
+
 5. Functions
 
    5.1. loose_route()
@@ -393,9 +431,16 @@ modparam("rr", "sockname_mode", 1)
    5.6. record_route_preset(string [,string2])
    5.7. record_route_advertised_address(address)
    5.8. add_rr_param(param)
-   5.9. check_route_param(re)
-   5.10. is_direction(dir)
-   5.11. rr_next_hop_route()
+   5.9. rr_cookie_add(name, sval)
+   5.10. rr_cookie_check(name, sval, tdiff)
+   5.11. rr_cookie_flinit(ival)
+   5.12. rr_cookie_flset(idx)
+   5.13. rr_cookie_flreset(idx)
+   5.14. rr_cookie_flisset(idx)
+   5.15. rr_cookie_flfetch(name)
+   5.16. check_route_param(re)
+   5.17. is_direction(dir)
+   5.18. rr_next_hop_route()
 
 5.1. loose_route()
 
@@ -439,7 +484,7 @@ modparam("rr", "sockname_mode", 1)
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.12. loose_route usage
+   Example 1.13. loose_route usage
 ...
 loose_route();
 ...
@@ -456,7 +501,7 @@ loose_route();
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.13. loose_route_preloaded usage
+   Example 1.14. loose_route_preloaded usage
 ...
 if(!loose_route_preloaded()) {
    sl_send_reply("404" "Preloaded route expected");
@@ -466,17 +511,20 @@ if(!loose_route_preloaded()) {
 
 5.3. loose_route_mode(vmode)
 
-   The function is similar to `loose_route()`, but it does only loose
-   routing processing if vmode==1, skipping the testing of r-uri==myself
-   for performing strict routing. If vmode==0, it behaves like
-   loose_route().
+   The function is similar to `loose_route()`, but it accepts route mode
+   bitmask as vmode parameter.
 
-   It is a convenient function to use with application servers that set
-   the Contact URI to SIP server address.
+   If bit one is set, then do only loose routing processing, skipping the
+   testing of r-uri==myself for performing strict routing. If not, behave
+   like loose_route(). If bit two is set, then skip flow tokens
+   processing.
+
+   First bit is convenient to use with application servers that set the
+   Contact URI to SIP server address.
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.14. loose_route_mode usage
+   Example 1.15. loose_route_mode usage
 ...
 if(has_totag() and uri==myself) {
     if(loose_route_mode("1")) {
@@ -509,7 +557,7 @@ if(has_totag() and uri==myself) {
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
    FAILURE_ROUTE.
 
-   Example 1.15. record_route usage
+   Example 1.16. record_route usage
 ...
 record_route();
 ...
@@ -523,7 +571,7 @@ record_route();
 
    This function can be used from REQUEST_ROUTE and FAILURE_ROUTE.
 
-   Example 1.16. remove_record_route usage
+   Example 1.17. remove_record_route usage
 ...
 remove_record_route();
 ...
@@ -558,7 +606,7 @@ remove_record_route();
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
    FAILURE_ROUTE.
 
-   Example 1.17. record_route_preset usage
+   Example 1.18. record_route_preset usage
 ...
 record_route_preset("1.2.3.4:5090");
 ...
@@ -585,7 +633,7 @@ record_route_preset("1.2.3.4:5090");
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
    FAILURE_ROUTE.
 
-   Example 1.18. record_route_advertised_address usage
+   Example 1.19. record_route_advertised_address usage
 ...
 record_route_advertised_address("1.2.3.4:5080");
 ...
@@ -605,16 +653,145 @@ record_route_advertised_address("1.2.3.4:5080");
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
    FAILURE_ROUTE.
 
-   Example 1.19. add_rr_param usage
+   Example 1.20. add_rr_param usage
 ...
 add_rr_param(";nat=yes");
 ...
 
-5.9. check_route_param(re)
+5.9. rr_cookie_add(name, sval)
+
+   Adds a cookie URI parameter to the Record-Route header. It can be
+   called before or after the function that adds the Record-Route header.
+   The cookie is the base64url encoding of a two-byte global field value,
+   a four-byte current timestamp, and the first six bytes of a SHA-256
+   digest.
+
+   The digest is calculated over the field value, the four-byte timestamp,
+   the Call-ID, and sval, separated by bytes with value 10. The timestamp
+   and field are encoded in network byte order.
+
+   The name parameter sets the Record-Route URI parameter name. Both
+   parameters may contain pseudo-variables.
+
+   This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
+   FAILURE_ROUTE.
+
+   Example 1.21. rr_cookie_add usage
+...
+rr_cookie_add("kc", "private-key::$si");
+record_route();
+...
+
+5.10. rr_cookie_check(name, sval, tdiff)
+
+   Checks the cookie in the parameter named name on the local Route URI.
+   The function decodes the cookie, verifies that its timestamp is not
+   older than the current time minus tdiff seconds, and recomputes the
+   hash from the cookie's field and timestamp, the Call-ID, and sval. It
+   returns 1 when all checks succeed and -1 otherwise.
+
+   The tdiff value must be a non-negative integer. The name and sval
+   parameters may contain pseudo-variables.
+
+   This function must be called after loose_route() and can be used from
+   REQUEST_ROUTE.
+
+   Example 1.22. rr_cookie_check usage
+...
+if(loose_route()) {
+    if(!rr_cookie_check("kc", "private-key::$si", 30)) {
+        sl_send_reply("403", "Invalid routing cookie");
+        exit;
+    }
+}
+...
+
+5.11. rr_cookie_flinit(ival)
+
+   Sets the two-byte global flags field value used by subsequent calls to
+   rr_cookie_add() in the process executing this function. The value must
+   be an integer between 0 and 65535. The parameter can be a variable.
+
+   This function can be used from any route. It returns 1 on success and
+   -1 when the value is invalid.
+
+   Example 1.23. rr_cookie_flinit usage
+...
+rr_cookie_flinit("42");
+...
+
+5.12. rr_cookie_flset(idx)
+
+   Sets the bit at position idx in the two-byte global flags field used by
+   subsequent calls to rr_cookie_add() in the process executing this
+   function. Bit zero is the least-significant bit. The index must be an
+   integer between 0 and 15 and can be a variable.
+
+   This function can be used from any route. It returns 1 on success and
+   -1 when the index is invalid.
+
+   Example 1.24. rr_cookie_flset usage
+...
+rr_cookie_flset("3");
+...
+
+5.13. rr_cookie_flreset(idx)
+
+   Clears the bit at position idx in the two-byte global flags field used
+   by subsequent calls to rr_cookie_add() in the process executing this
+   function. Bit zero is the least-significant bit. The index must be an
+   integer between 0 and 15 and can be a variable.
+
+   This function can be used from any route. It returns 1 on success and
+   -1 when the index is invalid.
+
+   Example 1.25. rr_cookie_flreset usage
+...
+rr_cookie_flreset("3");
+...
+
+5.14. rr_cookie_flisset(idx)
+
+   Checks whether the bit at position idx is set in the two-byte global
+   flags field. Bit zero is the least-significant bit. The index must be
+   an integer between 0 and 15 and can be a variable.
+
+   This function can be used from any route. It returns 1 when the bit is
+   set and -1 when the bit is clear or the index is invalid.
+
+   Example 1.26. rr_cookie_flisset usage
+...
+if(rr_cookie_flisset("3")) {
+    xlog("cookie flag 3 is set\n");
+}
+...
+
+5.15. rr_cookie_flfetch(name)
+
+   Reads the cookie in the parameter named name from the local Route URI,
+   decodes its flags field, and assigns that value to cookie flags global
+   variable in the process executing this function. The parameter name may
+   contain pseudo-variables.
+
+   This function must be called after loose_route() and can be used from
+   REQUEST_ROUTE. It returns 1 on success and -1 when the parameter is
+   missing or its cookie value is malformed.
+
+   Example 1.27. rr_cookie_flfetch usage
+...
+if(loose_route()) {
+    if(!rr_cookie_flfetch("kc")) {
+        sl_send_reply("403", "Invalid routing cookie");
+        exit;
+    }
+}
+...
+
+5.16. check_route_param(re)
 
    The function checks if the URI parameters of the local Route header
    (corresponding to the local server) matches the given regular
-   expression. It must be call after loose_route() (see Section 5.1,
+   expression. It must be called after loose_route() (see Section 5.1,
    “loose_route()”).
 
    Meaning of the parameters is as follows:
@@ -622,14 +799,14 @@ add_rr_param(";nat=yes");
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.20. check_route_param usage
+   Example 1.28. check_route_param usage
 ...
 if (check_route_param("nat=yes")) {
     setflag(6);
 }
 ...
 
-5.10. is_direction(dir)
+5.17. is_direction(dir)
 
    The function checks the flow direction of in-dialog requests. This
    function uses the “ftag” parameter from the Route header, therefore the
@@ -650,7 +827,7 @@ if (check_route_param("nat=yes")) {
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.21. is_direction usage
+   Example 1.29. is_direction usage
 ...
 if (is_direction("downstream")) {
     xdbg("in-dialog request from caller to callee (downstream) ($rm)\n");
@@ -659,7 +836,7 @@ if (is_direction("downstream")) {
 }
 ...
 
-5.11. rr_next_hop_route()
+5.18. rr_next_hop_route()
 
    The function returns 1 (true) if there is a Route header for the next
    hop address. It has to be used after loose_route(), when the local
@@ -667,7 +844,7 @@ if (is_direction("downstream")) {
 
    This function can be used from ANY_ROUTE.
 
-   Example 1.22. rr_next_hop_route usage
+   Example 1.30. rr_next_hop_route usage
 ...
 if(loose_route) {
     if(rr_next_hop_route()) {
@@ -685,7 +862,7 @@ if(loose_route) {
 
    Returns the URI of the top route-header.
 
-   Example 1.23. $route_uri
+   Example 1.31. $route_uri
 ...
     xdbg("Route-URI is: $route_uri\n");
 ...
@@ -698,11 +875,11 @@ Chapter 2. Developer Guide
 
         1.1. record_route(string)
         1.2. record_route_advertised_address(string)
-        1.3. add_rr_param( msg, param)
-        1.4. check_route_param( msg, re)
-        1.5. is_direction( msg, dir)
-        1.6. get_route_param( msg, name, val)
-        1.7. register_rrcb( callback, param)
+        1.3. add_rr_param(msg, param)
+        1.4. check_route_param(msg, re)
+        1.5. is_direction(msg, dir)
+        1.6. get_route_param(msg, name, val)
+        1.7. register_rrcb(callback, param)
 
    2. Examples
 
@@ -721,11 +898,11 @@ Chapter 2. Developer Guide
 
    1.1. record_route(string)
    1.2. record_route_advertised_address(string)
-   1.3. add_rr_param( msg, param)
-   1.4. check_route_param( msg, re)
-   1.5. is_direction( msg, dir)
-   1.6. get_route_param( msg, name, val)
-   1.7. register_rrcb( callback, param)
+   1.3. add_rr_param(msg, param)
+   1.4. check_route_param(msg, re)
+   1.5. is_direction(msg, dir)
+   1.6. get_route_param(msg, name, val)
+   1.7. register_rrcb(callback, param)
 
 1.1.  record_route(string)
 
@@ -763,9 +940,9 @@ record_route();
 record_route_advertised_address("1.2.3.4:5090");
 ...
 
-1.3.  add_rr_param( msg, param)
+1.3.  add_rr_param(msg, param)
 
-   Adds a parameter to the requests's Record-Route URI (param must be in
+   Adds a parameter to the requests' Record-Route URI (param must be in
    “;name=value” format).
 
    The function returns 0 on success. Otherwise, -1 is returned.
@@ -776,11 +953,11 @@ record_route_advertised_address("1.2.3.4:5090");
      * str* param - parameter to be added to the Record-Route header - it
        must be in “;name=value” format.
 
-1.4.  check_route_param( msg, re)
+1.4.  check_route_param(msg, re)
 
    The function checks for the request “msg” if the URI parameters of the
    local Route header (corresponding to the local server) matches the
-   given regular expression “re”. It must be call after the loose_route
+   given regular expression “re”. It must be called after the loose_route
    was done.
 
    The function returns 0 on success. Otherwise, -1 is returned.
@@ -791,12 +968,12 @@ record_route_advertised_address("1.2.3.4:5090");
      * regex_t* param - compiled regular expression to be checked against
        the Route header parameters.
 
-1.5.  is_direction( msg, dir)
+1.5.  is_direction(msg, dir)
 
    The function checks the flow direction of the request “msg”. As for
    checking it's used the “ftag” Route header parameter, the
    append_fromtag (see ??? module parameter must be enables. Also this
-   must be call only after the loose_route is done.
+   must be called only after the loose_route is done.
 
    The function returns 0 if the “dir” is the same with the request's flow
    direction. Otherwise, -1 is returned.
@@ -806,11 +983,11 @@ record_route_advertised_address("1.2.3.4:5090");
      * int dir - direction to be checked against. It may be
        “RR_FLOW_UPSTREAM” or “RR_FLOW_DOWNSTREAM”.
 
-1.6.  get_route_param( msg, name, val)
+1.6.  get_route_param(msg, name, val)
 
-   The function search in to the “msg”'s Route header parameters the
+   The function searches in the “msg”'s Route header parameters the
    parameter called “name” and returns its value into “val”. It must be
-   call only after the loose_route is done.
+   called only after the loose_route is done.
 
    The function returns 0 if parameter was found (even if it has no
    value). Otherwise, -1 is returned.
@@ -822,9 +999,9 @@ record_route_advertised_address("1.2.3.4:5090");
      * str *val - returns the value of the searched Route header parameter
        if found. It might be empty string if the parameter had no value.
 
-1.7.  register_rrcb( callback, param)
+1.7.  register_rrcb(callback, param)
 
-   The function register a new callback (along with its parameter). The
+   The function registers a new callback (along with its parameter). The
    callback will be called when a loose route will be performed for the
    local address.
 

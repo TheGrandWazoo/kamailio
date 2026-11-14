@@ -20,8 +20,8 @@
 	</para>
 	<para>
 	&kamailio; TM (Transaction Management) module documentation is available at:
-	<ulink url="http://www.kamailio.org/docs/modules/stable/tm.html">
-	http://www.kamailio.org/docs/modules/stable/tm.html</ulink>
+	<ulink url="https://www.kamailio.org/docs/modules/stable/modules/tm.html">
+	https://www.kamailio.org/docs/modules/stable/modules/tm.html</ulink>
 	</para>
 	</section>
 
@@ -164,6 +164,83 @@ if (t_cancel_callid("123qaz", "5", "22", "200")) {
 </programlisting>
 		</example>
 	</section>
+	<section id="tmx.f.t_cancel_branch_idx">
+		<title>
+			<function moreinfo="none">t_cancel_branch_idx(tindex, tlabel, bindex)
+			</function>
+		</title>
+		<para>
+		Cancel first INVITE transaction identified by tranaction index, label
+		and branch index.
+		</para>
+		<para>
+		Parameters:.
+		</para>
+		<itemizedlist>
+			<listitem><para>
+				<emphasis>tindex</emphasis> - transaction index.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>tlabel</emphasis> - transaction label.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>bindex</emphasis> - branch index.
+			</para></listitem>
+		</itemizedlist>
+		<para>
+		This function can be used in ANY_ROUTE.
+		</para>
+		<example>
+		<title><function>t_cancel_branch_idx</function> usage</title>
+		<programlisting format="linespecific">
+...
+if (t_cancel_branch_idx("123", "456", "2")) {
+	xinfo("transaction branch cancelled\n");
+}
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="tmx.f.t_uac_ack_local">
+		<title>
+			<function moreinfo="none">t_uac_ack_local(callid, cseq [, headers [, body]])
+			</function>
+		</title>
+		<para>
+		ACK the first transaction found with specified Call-ID and C-Seq.
+		Optionally include extra headers and request body.
+		</para>
+		<para>
+		Parameters:.
+		</para>
+		<itemizedlist>
+			<listitem><para>
+				<emphasis>callid</emphasis> - call-id value.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>cseq</emphasis> - cseq number.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>headers</emphasis> - extra headers to append
+			</para></listitem>
+			<listitem><para>
+					<emphasis>body</emphasis> - body to include
+			</para></listitem>
+		</itemizedlist>
+		<para>
+		This function can be used in ANY_ROUTE.
+		</para>
+		<example>
+		<title><function>t_uac_ack_local</function> usage</title>
+		<programlisting format="linespecific">
+...
+if (t_uac_ack_local("123qaz", "5")) {
+	xlog("transaction ACKed\n");
+}
+...
+</programlisting>
+		</example>
+	</section>
 	<section id="tmx.f.t_reply_callid">
 		<title>
 			<function moreinfo="none">t_reply_callid(callid, cseq, code, reason)
@@ -209,7 +286,7 @@ if (t_reply_callid("123qaz", "5", "458", "Replied remotely")) {
 		</title>
 		<para>
 		Flush the flags from current SIP message into the already created
-		transaction. It make sense only in routing block if the transaction was
+		transaction. It makes sense only in routing block if the transaction was
 		created via t_newtran() and the flags have been altered since.
 		</para>
 		<para>
@@ -235,7 +312,7 @@ t_flush_flags();
 		</title>
 		<para>
 		Flush the extended flags from current SIP message into the already created
-		transaction. It make sense only in routing block if the transaction was
+		transaction. It makes sense only in routing block if the transaction was
 		created via t_newtran() and the extended flags have been altered since.
 		</para>
 		<para>
@@ -579,6 +656,22 @@ event_route [tm:branch-failure:contact] {
 			<listitem><para>
 				<emphasis>$T(name)</emphasis>
 			</para></listitem>
+			<listitem><para>
+				<emphasis>$T(failure_route)</emphasis> - name of the failure_route
+				currently armed for the transaction.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>$T(branch_route)</emphasis> - name of the branch_route
+				currently armed for the transaction.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>$T(onreply_route)</emphasis> - name of the onreply_route
+				currently armed for the transaction.
+			</para></listitem>
+			<listitem><para>
+				<emphasis>$T(branch_failure_route)</emphasis> - name of the
+				branch_failure_route currently armed for the transaction.
+			</para></listitem>
 		</itemizedlist>
 		<para>
 		Exported pseudo-variables are documented at &kamwikilink;.
@@ -692,4 +785,3 @@ event_route [tm:branch-failure:contact] {
 
 	</section>
 </chapter>
-

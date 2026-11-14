@@ -1,0 +1,368 @@
+JWT3 Module
+
+Wolfgang Kampichler
+
+Daniel-Constantin Mierla
+
+   <miconda@gmail.com>
+
+Edited by
+
+Daniel-Constantin Mierla
+
+   <miconda@gmail.com>
+
+   Copyright © 2021 asipto.com
+
+   Copyright © 2026 Wolfgang Kampichler, Frequentis AG
+     __________________________________________________________________
+
+   Table of Contents
+
+   1. Admin Guide
+
+        1. Overview
+        2. Dependencies
+
+              2.1. Kamailio Modules
+              2.2. External Libraries or Applications
+
+        3. Parameters
+
+              3.1. leeway_sec (int)
+              3.2. jwks_cache_ttl (int)
+              3.3. jwks_miss_window (int)
+              3.4. jwks_max_misses (int)
+              3.5. jwks_fetch_timeout (int)
+              3.6. jwks_connect_timeout (int)
+              3.7. jwks_retry_interval (int)
+
+        4. Functions
+
+              4.1. jwt3_generate(prvkey, alg, claims[, headers])
+              4.2. jwt3_verify(pubkeypath, alg, claims, jwtval)
+              4.3. jwt3_verify_key(pubkeyval, alg, claims, jwtval)
+
+        5. Variables
+
+              5.1. $jwt3(key)
+
+   List of Examples
+
+   1.1. Set leeway_sec parameter
+   1.2. Set jwks_cache_ttl parameter
+   1.3. Set jwks_miss_window parameter
+   1.4. Set jwks_max_misses parameter
+   1.5. Set jwks_fetch_timeout parameter
+   1.6. Set jwks_connect_timeout parameter
+   1.7. Set jwks_retry_interval parameter
+   1.8. jwt3_generate usage
+   1.9. jwt3_verify usage
+   1.10. jwt3_verify_key usage
+   1.11. $jwt3(name) usage
+
+Chapter 1. Admin Guide
+
+   Table of Contents
+
+   1. Overview
+   2. Dependencies
+
+        2.1. Kamailio Modules
+        2.2. External Libraries or Applications
+
+   3. Parameters
+
+        3.1. leeway_sec (int)
+        3.2. jwks_cache_ttl (int)
+        3.3. jwks_miss_window (int)
+        3.4. jwks_max_misses (int)
+        3.5. jwks_fetch_timeout (int)
+        3.6. jwks_connect_timeout (int)
+        3.7. jwks_retry_interval (int)
+
+   4. Functions
+
+        4.1. jwt3_generate(prvkey, alg, claims[, headers])
+        4.2. jwt3_verify(pubkeypath, alg, claims, jwtval)
+        4.3. jwt3_verify_key(pubkeyval, alg, claims, jwtval)
+
+   5. Variables
+
+        5.1. $jwt3(key)
+
+1. Overview
+
+   This module provides JWT (JSON Web Token) functions to be used in
+   Kamailio configuration file.
+
+   It relies on libjwt (at least v3.2.0) library
+   (https://github.com/benmcollins/libjwt).
+
+   The key parameter of jwt3_verify() and jwt3_verify_key() accepts three
+   formats: a raw PEM string, a path to a local PEM or JWKS (.json) file,
+   or an HTTP/HTTPS URL pointing to a remote JWKS endpoint. When a URL is
+   provided, the JWKS is fetched and cached in shared memory. The cache
+   TTL is controlled by the jwks_cache_ttl parameter or, when available,
+   by the Cache-Control: max-age directive returned by the server.
+
+   If a refresh of an expired cache entry fails (for example because the
+   JWKS server is unavailable), the previously cached keys keep being used
+   and a new fetch is attempted after jwks_retry_interval seconds.
+
+   When a JWT contains a kid (Key ID) header that is not found in the
+   loaded JWKS, the module will attempt to re-fetch the JWKS from the
+   remote URL once and retry the lookup. If the kid is still not found,
+   verification fails. To protect against DoS attacks using JWTs with
+   unknown kid values that would trigger continuous re-fetches, the number
+   of re-fetch attempts is rate-limited per URL using the jwks_miss_window
+   and jwks_max_misses parameters.
+
+2. Dependencies
+
+   2.1. Kamailio Modules
+   2.2. External Libraries or Applications
+
+2.1. Kamailio Modules
+
+   The following modules must be loaded before this module:
+     * none.
+
+2.2. External Libraries or Applications
+
+   The following libraries or applications must be installed before
+   running Kamailio with this module loaded:
+     * libjwt - version 3.2.0 or higher.
+     * libcurl - required for remote JWKS URL support.
+
+3. Parameters
+
+   3.1. leeway_sec (int)
+   3.2. jwks_cache_ttl (int)
+   3.3. jwks_miss_window (int)
+   3.4. jwks_max_misses (int)
+   3.5. jwks_fetch_timeout (int)
+   3.6. jwks_connect_timeout (int)
+   3.7. jwks_retry_interval (int)
+
+3.1. leeway_sec (int)
+
+   This parameter defines the time tolerance in seconds used to account
+   for clock skew when validating the exp (expiration) and nbf (not
+   before) claims. A value of -1 disables nbf/exp claim validation, while
+   any positive integer sets the allowable leeway window.
+
+   Default value is -1.
+
+   Example 1.1. Set leeway_sec parameter
+...
+modparam("jwt3", "leeway_sec", 30)
+...
+
+3.2. jwks_cache_ttl (int)
+
+   Time-to-live in seconds for cached remote JWKS documents. When the
+   remote JWKS endpoint returns a Cache-Control: max-age response header,
+   that value takes precedence over this parameter. This fallback TTL is
+   used when no Cache-Control header is present.
+
+   Default value is 3600.
+
+   Example 1.2. Set jwks_cache_ttl parameter
+...
+modparam("jwt3", "jwks_cache_ttl", 600)
+...
+
+3.3. jwks_miss_window (int)
+
+   Time window in seconds used by the DoS protection mechanism. When a JWT
+   contains a kid that is not found in the cached JWKS, the module
+   re-fetches the remote endpoint. This parameter defines the sliding
+   window within which re-fetch attempts are counted per URL. Once the
+   count reaches jwks_max_misses, further re-fetches are blocked until the
+   window expires.
+
+   Default value is 60.
+
+   Example 1.3. Set jwks_miss_window parameter
+...
+modparam("jwt3", "jwks_miss_window", 120)
+...
+
+3.4. jwks_max_misses (int)
+
+   Maximum number of remote JWKS re-fetch attempts allowed per URL within
+   the jwks_miss_window. This limits the impact of DoS attacks that send
+   JWTs with unknown kid values to trigger continuous HTTP requests to the
+   JWKS endpoint. Once the limit is reached, further re-fetches for that
+   URL are rejected until the window resets.
+
+   Default value is 5.
+
+   Example 1.4. Set jwks_max_misses parameter
+...
+modparam("jwt3", "jwks_max_misses", 3)
+...
+
+3.5. jwks_fetch_timeout (int)
+
+   Maximum time in seconds allowed for the whole download of a remote
+   JWKS, including connection, redirects and transfer. The fetch is
+   blocking, so the SIP worker process handling the request waits for up
+   to this time.
+
+   Default value is 10. Must be greater than 0.
+
+   Example 1.5. Set jwks_fetch_timeout parameter
+...
+modparam("jwt3", "jwks_fetch_timeout", 5)
+...
+
+3.6. jwks_connect_timeout (int)
+
+   Maximum time in seconds allowed to establish the connection to the
+   remote JWKS server. It should not be greater than jwks_fetch_timeout.
+
+   Default value is 3. Must be greater than 0.
+
+   Example 1.6. Set jwks_connect_timeout parameter
+...
+modparam("jwt3", "jwks_connect_timeout", 2)
+...
+
+3.7. jwks_retry_interval (int)
+
+   Time in seconds to wait before trying again to refresh a remote JWKS
+   whose refresh has failed, while the previously cached keys are still
+   being used. It avoids blocking every request on a fetch while the JWKS
+   server is unavailable.
+
+   Default value is 30. Must not be negative.
+
+   Example 1.7. Set jwks_retry_interval parameter
+...
+modparam("jwt3", "jwks_retry_interval", 60)
+...
+
+4. Functions
+
+   4.1. jwt3_generate(prvkey, alg, claims[, headers])
+   4.2. jwt3_verify(pubkeypath, alg, claims, jwtval)
+   4.3. jwt3_verify_key(pubkeyval, alg, claims, jwtval)
+
+4.1.  jwt3_generate(prvkey, alg, claims[, headers])
+
+   Generate the JWT, its value can be retrieved in the variable
+   $jwt3(val).
+
+   The parameters are:
+     * prvkey - path to private key (PEM or JWKS)
+     * alg - the algorithm to build the signature, as supported by the
+       libjwt (e.g., RS256, HS256, ES256, ...)
+     * claims - the list of claims to be added to JWT, in the format
+       "name1=value1;name2=value2;..." (same as the SIP parameters
+       format). The string values can be enclosed in single or double
+       quotes. If a value is not eclosed in between quotes, it is added as
+       numeric value if it is successfully converted to a long value,
+       otherwise is added as string value.
+     * headers - the list of headers to be added to JWT, in the format
+       "name1=value1;name2=value2;..." (same as the SIP parameters
+       format). The string values can be enclosed in single or double
+       quotes. If a value is not eclosed in between quotes, it is added as
+       numeric value if it is successfully converted to a long value,
+       otherwise is added as string value. If prvkey points to a JWKS
+       (JSON Web Key Set), you can pass "kid=...;" in the header parameter
+       to select a specific key for signing. If no kid is specified, the
+       first key in the set will be used by default.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.8. jwt3_generate usage
+...
+  jwt3_generate("/path/to/prvkey.json", "ES256",
+        "caller='$fU';callee='$tU';callid='$ci';index=100");
+...
+
+4.2.  jwt3_verify(pubkeypath, alg, claims, jwtval)
+
+   Verify the JWT.
+
+   The parameters are:
+     * pubkeypath - path to public key file (PEM or JWKS), or an
+       HTTP/HTTPS URL pointing to a remote JWKS endpoint. When a URL is
+       provided, the JWKS is fetched and cached in shared memory.
+     * alg - the algorithm to build the signature, as supported by the
+       libjwt (e.g., RS256, HS256, ES256, ...)
+     * claims - the list of claims to be checked they are in the JWT, in
+       the format "name1=value1;name2=value2;..." (same as the SIP
+       parameters format, see also the description of claims parameter for
+       jwt3_generate()).
+     * jwtval - the value of the JWT to verify. If pubkeypath points to a
+       JWKS, and the incoming JWT header contains a kid, the key with the
+       matching identifier will be used for verification. If no kid is
+       present, the first key in the set is used by default.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.9. jwt3_verify usage
+...
+  if(!jwt3_verify("/path/to/pubkey.json", "ES256",
+         "caller='$fU';callee='$tU';callid='$ci';index=100",
+        "$var(jwt)") {
+    xwarn("failed to verify jwt\n");
+  }
+...
+
+4.3.  jwt3_verify_key(pubkeyval, alg, claims, jwtval)
+
+   Verify the JWT.
+
+   The parameters are:
+     * pubkeyval - public key value. Can be a raw PEM string, a path to a
+       local PEM or JWKS (.json) file, or an HTTP/HTTPS URL pointing to a
+       remote JWKS endpoint. When a URL is provided, the JWKS is fetched
+       and cached in shared memory.
+     * alg - the algorithm to build the signature, as supported by the
+       libjwt (e.g., RS256, HS256, ES256, ...)
+     * claims - the list of claims to be checked they are in the JWT, in
+       the format "name1=value1;name2=value2;..." (same as the SIP
+       parameters format, see also the description of claims parameter for
+       jwt3_generate()).
+     * jwtval - the value of the JWT to verify
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.10. jwt3_verify_key usage
+...
+  if(!jwt3_verify_key("...", "RS256",
+         "caller='$fU';callee='$tU';callid='$ci';index=100",
+        "$var(jwt)") {
+    xwarn("failed to verify jwt\n");
+  }
+
+  # remote JWKS URL - fetched and cached automatically
+  if(!jwt3_verify_key("https://auth.example.com/.well-known/jwks.json", "RS256",
+         "iss='https://auth.example.com'",
+        "$var(jwt)") {
+    xwarn("failed to verify jwt\n");
+  }
+...
+
+5. Variables
+
+   5.1. $jwt3(key)
+
+5.1.  $jwt3(key)
+
+   Get the values and attributes after using JWT functions.
+
+   The key can be:
+     * val - the value of JWT after a successful jwt3_generate().
+     * status - the status of verification after a failed jwt3_verify().
+
+   Example 1.11. $jwt3(name) usage
+...
+  jwt3_generate("/path/to/prvkey.pem", "RS256",
+        "caller='$fU';callee='$tU';callid='$ci';index=100");
+  xinfo("jwt is: $jwt3(val)");
+...

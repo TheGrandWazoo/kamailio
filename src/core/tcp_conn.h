@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -22,9 +24,12 @@
 #ifndef _tcp_conn_h
 #define _tcp_conn_h
 
+#include <sys/time.h>
+
 #include "tcp_init.h"
 #include "tcp_options.h"
 
+#include "str.h"
 #include "ip_addr.h"
 #include "locking.h"
 #include "atomic_ops.h"
@@ -32,33 +37,48 @@
 #include "timer.h"
 
 /* maximum number of port aliases x search wildcard possibilities */
-#define TCP_CON_MAX_ALIASES (4*3)
+#define TCP_CON_MAX_ALIASES (4 * 3)
 
-#define TCP_CHILD_TIMEOUT 5 /* after 5 seconds, the child "returns"
-							 * the connection to the tcp maing process */
-#define TCP_MAIN_SELECT_TIMEOUT 5 /* how often "tcp main" checks for timeout*/
+#define TCP_CHILD_TIMEOUT \
+	5							   /* after 5 seconds, the child "returns"
+							 * the connection to the tcp main process */
+#define TCP_MAIN_SELECT_TIMEOUT 5  /* how often "tcp main" checks for timeout*/
 #define TCP_CHILD_SELECT_TIMEOUT 2 /* the same as above but for children */
 
 #define TCPCONN_MATCH_DEFAULT 0
 #define TCPCONN_MATCH_STRICT 1
 
 /* tcp connection flags */
-#define F_CONN_READ_W       2 /* watched for READ ev. in main */
-#define F_CONN_WRITE_W      4 /* watched for WRITE (main) */
-#define F_CONN_READER       8 /* handled by a tcp reader */
-#define F_CONN_HASHED      16 /* in tcp_main hash */
-#define F_CONN_FD_CLOSED   32 /* fd was already closed */
-#define F_CONN_PENDING     64 /* pending connect  (fd not known yet in main) */
+#define F_CONN_READ_W 2		  /* watched for READ ev. in main */
+#define F_CONN_WRITE_W 4	  /* watched for WRITE (main) */
+#define F_CONN_READER 8		  /* handled by a tcp reader */
+#define F_CONN_HASHED 16	  /* in tcp_main hash */
+#define F_CONN_FD_CLOSED 32	  /* fd was already closed */
+#define F_CONN_PENDING 64	  /* pending connect  (fd not known yet in main) */
 #define F_CONN_MAIN_TIMER 128 /* timer active in the tcp_main process */
-#define F_CONN_EOF_SEEN   256 /* FIN or RST have been received */
-#define F_CONN_FORCE_EOF  512 /* act as if an EOF was received */
-#define F_CONN_OOB_DATA  1024 /* out of band data on the connection */
-#define F_CONN_WR_ERROR  2048 /* write error on the fd */
-#define F_CONN_WANTS_RD  4096 /* conn. should be watched for READ */
-#define F_CONN_WANTS_WR  8192 /* conn. should be watched for WRITE */
-#define F_CONN_PASSIVE  16384 /* conn. created via accept() and not connect()*/
+#define F_CONN_EOF_SEEN 256	  /* FIN or RST have been received */
+#define F_CONN_FORCE_EOF 512  /* act as if an EOF was received */
+#define F_CONN_OOB_DATA 1024  /* out of band data on the connection */
+#define F_CONN_WR_ERROR 2048  /* write error on the fd */
+#define F_CONN_WANTS_RD 4096  /* conn. should be watched for READ */
+#define F_CONN_WANTS_WR 8192  /* conn. should be watched for WRITE */
+#define F_CONN_PASSIVE 16384  /* conn. created via accept() and not connect()*/
 #define F_CONN_CLOSE_EV 32768 /* explicitely call tcpops ev route when closed */
-#define F_CONN_NOSEND   65536 /* do not send data on this connection */
+#define F_CONN_NOSEND 65536	  /* do not send data on this connection */
+#define F_CONN_NORECV (1 << 17) /* do not receive data on this connection */
+/* mode 2 (tcp reactor thread pool) flags */
+#define F_CONN_POOL_RD \
+	(1 << 18) /* a pool read job owns this conn (set/cleared by io_wait) */
+#define F_CONN_POOL_WR \
+	(1 << 20) /* a pool write job owns this conn (set/cleared by io_wait) */
+/* owned by a pool job: shielded out of io_h + local timer */
+#define F_CONN_POOL_BUSY (F_CONN_POOL_RD | F_CONN_POOL_WR)
+#define tcpconn_pool_busy(c) ((c)->flags & F_CONN_POOL_BUSY)
+#define F_CONN_CLOSE_EV_SENT \
+	(1 << 19) /* all modes: close event emitted; the first teardown path
+			   * sets it, later paths skip the tcpops route */
+#define F_CONN_POOL_CLOSE \
+	(1 << 21) /* a pool job failed: close when its last job completes */
 
 #ifndef NO_READ_HTTP11
 #define READ_HTTP11
@@ -72,85 +92,186 @@
 #define READ_WS
 #endif
 
-typedef enum tcp_req_errors {	TCP_REQ_INIT, TCP_REQ_OK, TCP_READ_ERROR,
-		TCP_REQ_OVERRUN, TCP_REQ_BAD_LEN } tcp_req_errors_t;
-typedef enum tcp_req_states {	H_SKIP_EMPTY, H_SKIP_EMPTY_CR_FOUND,
-		H_SKIP_EMPTY_CRLF_FOUND, H_SKIP_EMPTY_CRLFCR_FOUND,
-		H_SKIP, H_LF, H_LFCR,  H_BODY, H_STARTWS,
-		H_CONT_LEN1, H_CONT_LEN2, H_CONT_LEN3, H_CONT_LEN4, H_CONT_LEN5,
-		H_CONT_LEN6, H_CONT_LEN7, H_CONT_LEN8, H_CONT_LEN9, H_CONT_LEN10,
-		H_CONT_LEN11, H_CONT_LEN12, H_CONT_LEN13, H_L_COLON,
-		H_CONT_LEN_BODY, H_CONT_LEN_BODY_PARSE,
-		H_STUN_MSG, H_STUN_READ_BODY, H_STUN_FP, H_STUN_END, H_PING_CRLF
+/* tcp application protocol flags */
+#define KSR_TCPAP_HTTP 4
+#define KSR_TCPAP_WS 8
+#define KSR_TCPAP_MSRP 16
+#define KSR_TCPAP_HEP 32
+#define KSR_TCPAP_HEP3 32
+#define KSR_TCPAP_STUN 64
+#define KSR_TCPAP_HAPROXY 128
+#define KSR_TCPAP_DEFAULT \
+	(KSR_TCPAP_HTTP | KSR_TCPAP_WS | KSR_TCPAP_MSRP | KSR_TCPAP_STUN)
+
+typedef enum tcp_req_errors
+{
+	TCP_REQ_INIT,
+	TCP_REQ_OK,
+	TCP_READ_ERROR,
+	TCP_REQ_OVERRUN,
+	TCP_REQ_BAD_LEN
+} tcp_req_errors_t;
+typedef enum tcp_req_states
+{
+	H_SKIP_EMPTY,
+	H_SKIP_EMPTY_CR_FOUND,
+	H_SKIP_EMPTY_CRLF_FOUND,
+	H_SKIP_EMPTY_CRLFCR_FOUND,
+	H_SKIP,
+	H_LF,
+	H_LFCR,
+	H_BODY,
+	H_STARTWS,
+	H_CONT_LEN1,
+	H_CONT_LEN2,
+	H_CONT_LEN3,
+	H_CONT_LEN4,
+	H_CONT_LEN5,
+	H_CONT_LEN6,
+	H_CONT_LEN7,
+	H_CONT_LEN8,
+	H_CONT_LEN9,
+	H_CONT_LEN10,
+	H_CONT_LEN11,
+	H_CONT_LEN12,
+	H_CONT_LEN13,
+	H_L_COLON,
+	H_CONT_LEN_BODY,
+	H_CONT_LEN_BODY_PARSE,
+	H_STUN_MSG,
+	H_STUN_READ_BODY,
+	H_STUN_FP,
+	H_STUN_END,
+	H_PING_CRLF
 #ifdef READ_HTTP11
-		, H_HTTP11_CHUNK_START, H_HTTP11_CHUNK_SIZE,
-		H_HTTP11_CHUNK_BODY, H_HTTP11_CHUNK_END, H_HTTP11_CHUNK_FINISH
+	,
+	H_HTTP11_CHUNK_START,
+	H_HTTP11_CHUNK_SIZE,
+	H_HTTP11_CHUNK_BODY,
+	H_HTTP11_CHUNK_END,
+	H_HTTP11_CHUNK_FINISH
 #endif
 #ifdef READ_MSRP
-		, H_MSRP_BODY, H_MSRP_BODY_LF, H_MSRP_BODY_END, H_MSRP_FINISH
+	,
+	H_MSRP_BODY,
+	H_MSRP_BODY_LF,
+	H_MSRP_BODY_END,
+	H_MSRP_FINISH
 #endif
-	} tcp_req_states_t;
+} tcp_req_states_t;
 
-typedef enum tcp_conn_states { S_CONN_ERROR=-2, S_CONN_BAD=-1,
-						S_CONN_OK=0, /* established (write or read) */
-						S_CONN_INIT, /* initial state (invalid) */
-						S_CONN_EOF,
-						S_CONN_ACCEPT, S_CONN_CONNECT
-					} tcp_conn_states_t;
+typedef enum tcp_conn_states
+{
+	S_CONN_ERROR = -2,
+	S_CONN_BAD = -1,
+	S_CONN_OK = 0, /* established (write or read) */
+	S_CONN_INIT,   /* initial state (invalid) */
+	S_CONN_EOF,
+	S_CONN_ACCEPT,
+	S_CONN_CONNECT,
+	S_CONN_HAPROXY
+} tcp_conn_states_t;
 
 
 /* fd communication commands */
-typedef enum conn_cmds {
-	CONN_DESTROY=-3 /* destroy connection & auto-dec. refcnt */,
-	CONN_ERROR=-2   /* error on connection & auto-dec. refcnt */,
-	CONN_EOF=-1     /* eof received or conn. closed & auto-dec refcnt */,
-	CONN_NOP=0      /* do-nothing (invalid for tcp_main) */,
-	CONN_RELEASE    /* release a connection from tcp_read back into tcp_main
-					 * & auto-dec refcnt */,
-	CONN_GET_FD     /* request a fd from tcp_main */,
-	CONN_NEW        /* update/set a fd int a new tcp connection; refcnts are
-					 * not touched */,
+typedef enum conn_cmds
+{
+	CONN_DESTROY = -3 /* destroy connection & auto-dec. refcnt */,
+	CONN_ERROR = -2 /* error on connection & auto-dec. refcnt */,
+	CONN_EOF = -1 /* eof received or conn. closed & auto-dec refcnt */,
+	CONN_NOP = 0 /* do-nothing (invalid for tcp_main) */,
+	CONN_RELEASE /* release a connection from tcp_read back into tcp_main
+					 * & auto-dec refcnt */
+	,
+	CONN_GET_FD /* request a fd from tcp_main */,
+	CONN_NEW /* update/set a fd int a new tcp connection; refcnts are
+					 * not touched */
+	,
 	CONN_QUEUED_WRITE /* new write queue: start watching the fd for write &
-						* auto-dec refcnt */,
+						* auto-dec refcnt */
+	,
 	CONN_NEW_PENDING_WRITE /* like CONN_NEW+CONN_QUEUED_WRITE: set fd and
 							* start watching it for write (write queue
-							* non-empty); refcnts are not touced */,
-	CONN_NEW_COMPLETE  /* like CONN_NEW_PENDING_WRITE, but there is no
+							* non-empty); refcnts are not touced */
+	,
+	CONN_NEW_COMPLETE /* like CONN_NEW_PENDING_WRITE, but there is no
 						* pending write (the write queue might be empty) */
+	,
+	CONN_WRITE_REQ /* mode 2: worker asks tcp_main to queue a write on an
+						* existing connection; response[0] is a
+						* tcp_reactor_write_req_t*, not a tcp_connection* */
+	,
+	CONN_CONNECT_REQ /* mode 2: worker asks tcp_main to open a new outbound
+						* connection and send on it; response[0] is a
+						* tcp_reactor_connect_req_t*, not a tcp_connection* */
+	,
+	CONN_TLS_EVENT_DONE /* mode 2: worker finished a dispatched
+						 * tls:connection-out event; response[0] is the
+						 * tcp_connection*, tcp_main drops the dispatch refcnt */
+	,
+	CONN_SCRIPT_CLOSE /* mode 2: for worker to signal a connection close on error
+					   * when tcp_script_mode = 0 */
+	,
+	CONN_TCPX_TASK_REQ /* mode 2: any process asks PROC_TCP_MAIN to run a
+						* tcpx_task_t on a pool thread (ksr_tcpx_task_send()'s
+						* generic trampoline, e.g. RPC handlers like
+						* tls.reload); response[0] is a tcpx_task_t* */
+	,
+	CONN_TCPX_TASK_DONE /* mode 2: PROC_TCP_MAIN replies with the result of a
+						 * CONN_TCPX_TASK_REQ, sent back over the requesting
+						 * process's own unix_sock; response[0] is a
+						 * tcpx_task_result_t* */
+	,
+	CONN_FREE_REQ /* modes 1/2: a process other than tcp_main dropped the last
+				   * ref of a TLS/WSS connection; response[0] is the
+				   * tcp_connection*, tcp_main frees it (and its TLS state) */
+	,
+	CONN_CONNECT_DONE /* mode 2: PROC_TCP_MAIN answers a CONN_CONNECT_REQ over the
+					   * requester's unix_sock; response[0] is the request's
+					   * token, bit 0 set when the connect failed at once */
 } conn_cmds_t;
 /* CONN_RELEASE, EOF, ERROR, DESTROY can be used by "reader" processes
  * CONN_GET_FD, CONN_NEW*, CONN_QUEUED_WRITE only by writers */
 
 /* tcp_req flags */
-typedef enum tcp_req_flags {
-	F_TCP_REQ_HAS_CLEN      = (1<<0),
-	F_TCP_REQ_COMPLETE      = (1<<1),
+typedef enum tcp_req_flags
+{
+	F_TCP_REQ_HAS_CLEN = (1 << 0),
+	F_TCP_REQ_COMPLETE = (1 << 1),
 #ifdef READ_HTTP11
-	F_TCP_REQ_BCHUNKED      = (1<<2),
+	F_TCP_REQ_BCHUNKED = (1 << 2),
 #endif
 #ifdef READ_MSRP
-	F_TCP_REQ_MSRP_NO       = (1<<3),
-	F_TCP_REQ_MSRP_FRAME    = (1<<4),
-	F_TCP_REQ_MSRP_BODY     = (1<<5),
+	F_TCP_REQ_MSRP_NO = (1 << 3),
+	F_TCP_REQ_MSRP_FRAME = (1 << 4),
+	F_TCP_REQ_MSRP_BODY = (1 << 5),
 #endif
-	F_TCP_REQ_HEP3          = (1<<6),
+	F_TCP_REQ_HEP3 = (1 << 6),
+	F_TCP_REQ_WS_HANDSHAKE = (1 << 7),
+	/* mode 2: reactor dispatch task carries a tls:connection-out event to run
+	 * in a worker, not a message. task->con is the connection; msg_buf is
+	 * empty. See tcp_reactor_dispatch_tls_event(). */
+	F_TCP_REQ_TLS_EVENT = (1 << 8),
 } tcp_req_flags_t;
 
-#define TCP_REQ_HAS_CLEN(tr)  ((tr)->flags & F_TCP_REQ_HAS_CLEN)
-#define TCP_REQ_COMPLETE(tr)  ((tr)->flags & F_TCP_REQ_COMPLETE)
+#define TCP_REQ_HAS_CLEN(tr) ((tr)->flags & F_TCP_REQ_HAS_CLEN)
+#define TCP_REQ_COMPLETE(tr) ((tr)->flags & F_TCP_REQ_COMPLETE)
 #ifdef READ_HTTP11
-#define TCP_REQ_BCHUNKED(tr)  ((tr)->flags & F_TCP_REQ_BCHUNKED)
+#define TCP_REQ_BCHUNKED(tr) ((tr)->flags & F_TCP_REQ_BCHUNKED)
 #endif
 
-typedef struct tcp_req {
-	struct tcp_req* next;
+#define KSR_TCP_REQSTATE_DATARECV (1 << 0)
+
+typedef struct tcp_req
+{
+	struct tcp_req *next;
 	/* sockaddr ? */
-	char* buf; /* bytes read so far (+0-terminator)*/
-	char* start; /* where the message starts, after all the empty lines are
+	char *buf;	  /* bytes read so far (+0-terminator)*/
+	char *start;  /* where the message starts, after all the empty lines are
 					skipped*/
-	char* pos; /* current position in buf */
-	char* parsed; /* last parsed position */
-	char* body; /* body position */
+	char *pos;	  /* current position in buf */
+	char *parsed; /* last parsed position */
+	char *body;	  /* body position */
 	unsigned int b_size; /* buffer size-1 (extra space for 0-term)*/
 	int content_len;
 #ifdef READ_HTTP11
@@ -160,40 +281,46 @@ typedef struct tcp_req {
 	int bytes_to_go; /* how many bytes we have still to read from the body*/
 	enum tcp_req_errors error;
 	enum tcp_req_states state;
+	unsigned int dxstate;
+	struct timeval tvrstart;
 } tcp_req_t;
 
 struct tcp_connection;
 
 /* tcp port alias structure */
-typedef struct tcp_conn_alias {
-	struct tcp_connection* parent;
-	struct tcp_conn_alias* next;
-	struct tcp_conn_alias* prev;
+typedef struct tcp_conn_alias
+{
+	struct tcp_connection *parent;
+	struct tcp_conn_alias *next;
+	struct tcp_conn_alias *prev;
 	unsigned short port; /* alias port */
 	unsigned short hash; /* hash index in the address hash */
 } tcp_conn_alias_t;
 
 
 #ifdef TCP_ASYNC
-	typedef struct tcp_wbuffer {
-		struct tcp_wbuffer* next;
-		unsigned int b_size;
-		char buf[1];
-	} tcp_wbuffer_t;
+typedef struct tcp_wbuffer
+{
+	struct tcp_wbuffer *next;
+	unsigned int b_size;
+	char buf[1];
+} tcp_wbuffer_t;
 
-	typedef struct tcp_wbuffer_queue {
-		struct tcp_wbuffer* first;
-		struct tcp_wbuffer* last;
-		ticks_t wr_timeout; /* write timeout*/
-		unsigned int queued; /* total size */
-		unsigned int offset; /* offset in the first wbuffer were data
+typedef struct tcp_wbuffer_queue
+{
+	struct tcp_wbuffer *first;
+	struct tcp_wbuffer *last;
+	ticks_t wr_timeout;		/* write timeout*/
+	unsigned int queued;	/* total size */
+	unsigned int offset;	/* offset in the first wbuffer were data
 								starts */
-		unsigned int last_used; /* how much of the last buffer is used */
-	} tcp_wbuffer_queue_t;
+	unsigned int last_used; /* how much of the last buffer is used */
+} tcp_wbuffer_queue_t;
 #endif
 
 
-enum tcp_closed_reason {
+enum tcp_closed_reason
+{
 	TCP_CLOSED_EOF = 0,
 	TCP_CLOSED_TIMEOUT,
 	TCP_CLOSED_RESET,
@@ -201,36 +328,73 @@ enum tcp_closed_reason {
 	_TCP_CLOSED_REASON_MAX /* /!\ keep this one always at the end */
 };
 
+typedef struct ksr_coninfo
+{
+	ip_addr_t src_ip;
+	ip_addr_t dst_ip;
+	unsigned short src_port; /* host byte order */
+	unsigned short dst_port; /* host byte order */
+	int proto;
+	socket_info_t *csocket;
+	str server_name; /* outbound tls server name (sni) */
+	str server_id;	 /* outbound tls server id */
+} ksr_coninfo_t;
 
-typedef struct tcp_connection {
-	int s; /*socket, used by "tcp main" */
+
+/* mode 2 TCP writes: per-connection plaintext write staging
+ * chunk. PROC_TCP_MAIN may still need to apply TLS so
+ * wbuf_q cannot be used yet.
+ */
+struct tcp_wchunk
+{
+	char *buf;
+	unsigned int len;
+	snd_flags_t send_flags;
+	struct tcp_wchunk *next;
+};
+
+
+typedef struct tcp_connection
+{
+	int s;	/*socket, used by "tcp main" */
 	int fd; /* used only by "children", don't modify it! private data! */
 	gen_lock_t write_lock;
 	int id; /* id (unique!) used to retrieve a specific connection when
 			 * reply-ing */
 	enum tcp_closed_reason event; /* connection close reason */
-	int reader_pid; /* pid of the active reader process */
-	struct receive_info rcv; /* src & dst ip, ports, proto a.s.o*/
-	ksr_coninfo_t cinfo; /* connection info (e.g., for haproxy ) */
-	struct tcp_req req; /* request data */
+	int reader_pid;				  /* pid of the active reader process */
+	struct receive_info rcv;	  /* src & dst ip, ports, proto a.s.o*/
+	ksr_coninfo_t cinfo;		  /* additional info (for haproxy, tls, ...) */
+	struct tcp_req req;			  /* request data */
 	atomic_t refcnt;
-	enum sip_protos type; /* PROTO_TCP or a protocol over it, e.g. TLS */
-	unsigned int flags; /* connection related flags */
-	snd_flags_t send_flags; /* special send flags */
+	enum sip_protos type;		/* PROTO_TCP or a protocol over it, e.g. TLS */
+	unsigned int flags;			/* connection related flags */
+	snd_flags_t send_flags;		/* special send flags */
 	enum tcp_conn_states state; /* connection state */
-	void* extra_data; /* extra data associated to the connection, 0 for tcp*/
+	enum tcp_conn_states initstate; /* initial connection state */
+	void *extra_data; /* extra data associated to the connection, 0 for tcp*/
 	struct timer_ln timer;
-	ticks_t timeout;/* connection timeout, after this it will be removed*/
-	ticks_t lifetime;/* connection lifetime */
+	time_t timestamp; /* connection creation timestamp */
+	ticks_t timeout;  /* connection timeout, after this it will be removed*/
+	ticks_t lifetime; /* connection lifetime */
 	unsigned id_hash; /* hash index in the id_hash */
-	struct tcp_connection* id_next; /* next, prev in id hash table */
-	struct tcp_connection* id_prev;
-	struct tcp_connection* c_next; /* child next prev (use locally) */
-	struct tcp_connection* c_prev;
+	struct tcp_connection *id_next; /* next, prev in id hash table */
+	struct tcp_connection *id_prev;
+	struct tcp_connection *c_next; /* child next prev (use locally) */
+	struct tcp_connection *c_prev;
 	struct tcp_conn_alias con_aliases[TCP_CON_MAX_ALIASES];
 	int aliases; /* aliases number, at least 1 */
 #ifdef TCP_ASYNC
 	struct tcp_wbuffer_queue wbuf_q;
+	/* mode 2 (tcp reactor) write path: the per-connection plaintext staging
+	 * list, guarded by write_lock; unused (NULL) in modes 0/1. */
+	struct tcp_wchunk *wsq_head;
+	struct tcp_wchunk *wsq_tail;
+	unsigned int wsq_len; /* bytes staged on wsq */
+	/* mode 2: pool thread index + 1 running this conn's read/write job, or 0;
+	 * written by that thread only, checked to catch a second owner */
+	int rd_owner;
+	int wr_owner;
 #endif
 } tcp_connection_t;
 
@@ -240,112 +404,126 @@ typedef struct tcp_connection {
 #define tcpconn_set_send_flags(c, snd_flags) \
 	SND_FLAGS_OR(&(c)->send_flags, &(c)->send_flags, &(snd_flags))
 
-#define tcpconn_close_after_send(c)	((c)->send_flags.f & SND_F_CON_CLOSE)
+#define tcpconn_close_after_send(c) ((c)->send_flags.f & SND_F_CON_CLOSE)
 
 #define TCP_RCV_INFO(c) (&(c)->rcv)
 
 #define TCP_RCV_LADDR(r) (&((r).dst_ip))
 #define TCP_RCV_LPORT(r) ((r).dst_port)
-#define TCP_RCV_PADDR(r)  (&((r).src_ip))
-#define TCP_RCV_PPORT(r)  ((r).src_port)
-#define TCP_RCV_PSU(r)   (&(r).src_su)
-#define TCP_RCV_SOCK_INFO(r)  ((r).bind_address)
-#define TCP_RCV_PROTO(r)      ((r).proto)
+#define TCP_RCV_PADDR(r) (&((r).src_ip))
+#define TCP_RCV_PPORT(r) ((r).src_port)
+#define TCP_RCV_PSU(r) (&(r).src_su)
+#define TCP_RCV_SOCK_INFO(r) ((r).bind_address)
+#define TCP_RCV_PROTO(r) ((r).proto)
 #ifdef USE_COMP
-#define TCP_RCV_COMP(r)       ((r).comp)
+#define TCP_RCV_COMP(r) ((r).comp)
 #else
-#define TCP_RCV_COMP(r)  0
+#define TCP_RCV_COMP(r) 0
 #endif /* USE_COMP */
 
 #define TCP_LADDR(c) TCP_RCV_LADDR(c->rcv)
 #define TCP_LPORT(c) TCP_RCV_LPORT(c->rcv)
 #define TCP_PADDR(c) TCP_RCV_PADDR(c->rcv)
 #define TCP_PPORT(c) TCP_RCV_PPORT(c->rcv)
-#define TCP_PSU(c)   TCP_RCV_PSU(c->rcv)
+#define TCP_PSU(c) TCP_RCV_PSU(c->rcv)
 #define TCP_SOCK_INFO(c) TCP_RCV_SOCK_INFO(c->rcv)
 #define TCP_PROTO(c) TCP_RCV_PROTO(c->rcv)
 #define TCP_COMP(c) TCP_RCV_COMP(c->rcv)
 
 
-
+/* take a ref; drop it with tcpconn_put() in tcp main, tcpconn_chld_put() in
+ * workers and modules */
 #define tcpconn_ref(c) atomic_inc(&((c)->refcnt))
+/* tcp main: a bare atomic decrement, true on the last ref; the caller then
+ * frees c (tcpconn_destroy()). Workers and modules: tcpconn_chld_put() */
 #define tcpconn_put(c) atomic_dec_and_test(&((c)->refcnt))
 
 
-#define init_tcp_req( r, rd_buf, rd_buf_size) \
-	do{ \
-		memset( (r), 0, sizeof(struct tcp_req)); \
-		(r)->buf=(rd_buf) ;\
-		(r)->b_size=(rd_buf_size)-1; /* space for 0 term. */ \
-		(r)->parsed=(r)->pos=(r)->start=(r)->buf; \
-		(r)->error=TCP_REQ_OK;\
-		(r)->state=H_SKIP_EMPTY; \
-	}while(0)
+#define init_tcp_req(r, rd_buf, rd_buf_size)                     \
+	do {                                                         \
+		memset((r), 0, sizeof(struct tcp_req));                  \
+		(r)->buf = (rd_buf);                                     \
+		(r)->b_size = (rd_buf_size) - 1; /* space for 0 term. */ \
+		(r)->parsed = (r)->pos = (r)->start = (r)->buf;          \
+		(r)->error = TCP_REQ_OK;                                 \
+		(r)->state = H_SKIP_EMPTY;                               \
+	} while(0)
 
 
 /* add a tcpconn to a list*/
 /* list head, new element, next member, prev member */
-#define tcpconn_listadd(head, c, next, prev) \
-	do{ \
-		/* add it at the begining of the list*/ \
-		(c)->next=(head); \
-		(c)->prev=0; \
-		if ((head)) (head)->prev=(c); \
-		(head)=(c); \
+#define tcpconn_listadd(head, c, next, prev)     \
+	do {                                         \
+		/* add it at the beginning of the list*/ \
+		(c)->next = (head);                      \
+		(c)->prev = 0;                           \
+		if((head))                               \
+			(head)->prev = (c);                  \
+		(head) = (c);                            \
 	} while(0)
 
 
 /* remove a tcpconn from a list*/
 #define tcpconn_listrm(head, c, next, prev) \
-	do{ \
-		if ((head)==(c)) (head)=(c)->next; \
-		if ((c)->next) (c)->next->prev=(c)->prev; \
-		if ((c)->prev) (c)->prev->next=(c)->next; \
-	}while(0)
+	do {                                    \
+		if((head) == (c))                   \
+			(head) = (c)->next;             \
+		if((c)->next)                       \
+			(c)->next->prev = (c)->prev;    \
+		if((c)->prev)                       \
+			(c)->prev->next = (c)->next;    \
+	} while(0)
 
 
 #define TCPCONN_LOCK lock_get(tcpconn_lock);
 #define TCPCONN_UNLOCK lock_release(tcpconn_lock);
 
 #define TCP_ALIAS_HASH_SIZE 4096
-#define TCP_ID_HASH_SIZE 1024
+#define TCP_ID_HASH_SIZE 2048
 
 /* hash (dst_ip, dst_port, local_ip, local_port) */
-static inline unsigned tcp_addr_hash(	struct ip_addr* ip,
-										unsigned short port,
-										struct ip_addr* l_ip,
-										unsigned short l_port)
+static inline unsigned tcp_addr_hash(struct ip_addr *ip, unsigned short port,
+		struct ip_addr *l_ip, unsigned short l_port)
 {
 	unsigned h;
 
-	if(ip->len==4)
-		h=(ip->u.addr32[0]^port)^(l_ip->u.addr32[0]^l_port);
-	else if (ip->len==16)
-		h= (ip->u.addr32[0]^ip->u.addr32[1]^ip->u.addr32[2]^
-				ip->u.addr32[3]^port) ^
-			(l_ip->u.addr32[0]^l_ip->u.addr32[1]^l_ip->u.addr32[2]^
-				l_ip->u.addr32[3]^l_port);
-	else{
+	if(ip->len == 4)
+		h = (ip->u.addr32[0] ^ port) ^ (l_ip->u.addr32[0] ^ l_port);
+	else if(ip->len == 16)
+		h = (ip->u.addr32[0] ^ ip->u.addr32[1] ^ ip->u.addr32[2]
+					^ ip->u.addr32[3] ^ port)
+			^ (l_ip->u.addr32[0] ^ l_ip->u.addr32[1] ^ l_ip->u.addr32[2]
+					^ l_ip->u.addr32[3] ^ l_port);
+	else {
 		LM_CRIT("bad len %d for an ip address\n", ip->len);
 		return 0;
 	}
 	/* make sure the first bits are influenced by all 32
 	 * (the first log2(TCP_ALIAS_HASH_SIZE) bits should be a mix of all
 	 *  32)*/
-	h ^= h>>17;
-	h ^= h>>7;
-	return h & (TCP_ALIAS_HASH_SIZE-1);
+	h ^= h >> 17;
+	h ^= h >> 7;
+	return h & (TCP_ALIAS_HASH_SIZE - 1);
 }
 
-#define tcp_id_hash(id) (id&(TCP_ID_HASH_SIZE-1))
+#define tcp_id_hash(id) (id & (TCP_ID_HASH_SIZE - 1))
 
-struct tcp_connection* tcpconn_get(int id, struct ip_addr* ip, int port,
-		union sockaddr_union* local_addr, ticks_t timeout);
+struct tcp_connection *tcpconn_get(int id, struct ip_addr *ip, int port,
+		union sockaddr_union *local_addr, ticks_t timeout);
 
-struct tcp_connection* tcpconn_lookup(int id, struct ip_addr* ip, int port,
-		union sockaddr_union* local_addr, int try_local_port, ticks_t timeout);
+struct tcp_connection *tcpconn_lookup(int id, struct ip_addr *ip, int port,
+		union sockaddr_union *local_addr, int try_local_port, ticks_t timeout,
+		sip_protos_t proto);
+/* opens a new outbound tcp connection (socket()+non-blocking connect()); used
+ * from tcp_send() (tcp_main.c) and, in mode 2, tcp_reactor_handle_connect_req()
+ * (tcp_reactor.c) when CONN_CONNECT_REQ's dedup lookup finds nothing. */
+struct tcp_connection *tcpconn_connect(union sockaddr_union *server,
+		union sockaddr_union *from, int type, snd_flags_t *send_flags);
+void tcpconn_log_candidates(int id, struct ip_addr *ip, int port,
+		union sockaddr_union *local_addr, sip_protos_t proto);
 
-typedef struct tcp_event_info {
+typedef struct tcp_event_info
+{
 	int type;
 	char *buf;
 	unsigned int len;
@@ -353,16 +531,91 @@ typedef struct tcp_event_info {
 	struct tcp_connection *con;
 } tcp_event_info_t;
 
-typedef struct tcp_closed_event_info {
+typedef struct tcp_closed_event_info
+{
 	enum tcp_closed_reason reason;
+	int id;
 	struct tcp_connection *con;
 } tcp_closed_event_info_t;
 
-typedef struct ws_event_info {
+typedef struct ws_event_info
+{
 	int type;
 	char *buf;
 	unsigned int len;
 	int id;
+	snd_flags_t send_flags; /* frame out: the sender's flags */
 } ws_event_info_t;
+
+tcp_connection_t *ksr_tcpcon_evcb_get(void);
+
+int is_tcp_main(void);
+
+/* modes 1/2: tcp main (any of its threads) uses c->s, a worker its c->fd */
+#define _tconfd(c) (is_tcp_main() ? (c)->s : (c)->fd)
+
+int ksr_tcp_parse_accept_protocols(char *protos);
+
+/* write-queue state predicates - used by tcp_main.c (modes 0/1/2) and
+ * tcp_reactor.c (mode 2 pool/completion code) */
+#define _wbufq_empty(con) ((con)->wbuf_q.first == 0)
+#define _wbufq_non_empty(con) ((con)->wbuf_q.first != 0)
+
+/* Connection-lifecycle primitives shared with tcp_reactor.c (mode 2):
+ * write-queueing, unhash/destroy, the close-event emitter. They stay defined
+ * (and mostly used) in tcp_main.c since modes 0/1 need them too; declared
+ * here for tcp_reactor.c to call. */
+int _wbufq_add(struct tcp_connection *c, const char *data, unsigned int size);
+int _wbufq_add_cap(struct tcp_connection *c, const char *data,
+		unsigned int size, int conn_cap);
+int wbufq_run(int fd, struct tcp_connection *c, int *empty);
+/* call from the tcp main io_wait thread: they touch tcp_main_ltimer and io_h;
+ * unhash with tcpconn_try_unhash() before tcpconn_put_destroy() */
+/* remove c from the hash and the local timer; 1 when this call unhashed c,
+ * the caller then drops the hash ref */
+int tcpconn_try_unhash(struct tcp_connection *tcpconn);
+/* close the fd and drop a ref; frees c on the last one (returns 1) */
+int tcpconn_put_destroy(struct tcp_connection *tcpconn);
+/* free c after its last ref: refcnt 0, unhashed, fd out of io_h */
+void tcpconn_destroy(struct tcp_connection *tcpconn);
+/* drop a ref outside tcp main (workers, modules); the last ref (returns 1)
+ * frees the conn, or hands a tls/wss conn to tcp main to free in modes 1/2 */
+int tcpconn_chld_put(struct tcp_connection *tcpconn);
+struct tcp_connection *tcpconn_add(struct tcp_connection *c);
+void tcpconn_set_proxied_addr(struct tcp_connection *c, struct ip_addr *src_ip,
+		unsigned short src_port, struct ip_addr *dst_ip,
+		unsigned short dst_port);
+int tcp_emit_closed_event(struct tcp_connection *con);
+void _tcpconn_free(struct tcp_connection *c);
+int tcp_safe_close(int s);
+
+/* io_h and tcp_main_ltimer are process-private to tcp_main.c - only the
+ * io_wait thread may touch them. These wrappers are how tcp_reactor.c reaches
+ * them instead of taking a raw pointer, which would drop that exclusivity.
+ * Callable only from the io_wait thread, same rule as the io_watch_*()/
+ * local_timer_*() calls they forward to. Every conn-fd watch in tcp_reactor.c
+ * uses F_TCPCONN, so the add wrapper hardcodes it; the notify-pipe
+ * registration (F_TCP_REACTOR_NOTIFY) is a separate one-off, done directly in
+ * tcp_main.c after tcp_reactor_pool_init() returns. */
+int tcpmain_io_watch_add_conn(int fd, short events, void *data);
+/* is_closing maps to io_watch_del()'s IO_FD_CLOSING flag (0 otherwise) - a
+ * bool here rather than the raw io_wait.h flag value so tcp_reactor.c does
+ * not need to include io_wait.h (and, with it, define its own fd_type - see
+ * HANDLE_IO_INLINE in io_wait.h - just for one constant). */
+int tcpmain_io_watch_del(int fd, int idx, int is_closing);
+/* no tcpmain_io_watch_add_notify(): the notify-pipe io_watch_add() is a single
+ * call site in tcp_main_loop() itself, right after tcp_reactor_pool_init(). */
+int tcpmain_io_watch_chg(int fd, short events, int idx);
+void tcpmain_local_timer_add(
+		struct timer_ln *tl, ticks_t delta, ticks_t crt_ticks);
+void tcpmain_local_timer_del(struct timer_ln *tl);
+/* local_timer_reinit(tl) needs no wrapper: it's timer_reinit(tl), a macro
+ * that only touches the timer_ln itself, not tcp_main_ltimer. */
+
+/* tcp_connections_no/tls_connections_no accounting - not a hard concurrency
+ * invariant like io_h/the timer (every increment already runs on the
+ * io_wait thread, same as the pre-existing mode 0/1 call sites), exposed as a
+ * wrapper purely to keep the counters themselves private to tcp_main.c. */
+void tcpmain_note_new_conn(int is_tls);
 
 #endif

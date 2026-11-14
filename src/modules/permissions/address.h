@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -26,16 +28,9 @@
 #include "../../core/parser/msg_parser.h"
 
 
-/* Pointer to current address hash table pointer */
-extern struct addr_list ***perm_addr_table;
-
-
-/* Pointer to current subnet table */
-extern struct subnet **perm_subnet_table;
-
-
-/* Pointer to current domain name table */
-extern struct domain_name_list ***perm_domain_table;
+struct addr_table;
+struct subnet_table;
+struct domain_name_table;
 
 /*
  * Initialize data structures
@@ -68,8 +63,8 @@ int allow_address(sip_msg_t *_msg, int addr_group, str *ips, int port);
  * given address group and has given ip address and port.  Port value
  * 0 in cached address table matches any port.
  */
-int w_allow_address(struct sip_msg* _msg, char* _addr_group, char* _addr_sp,
-		char* _port_sp);
+int w_allow_address(struct sip_msg *_msg, char *_addr_group, char *_addr_sp,
+		char *_port_sp);
 
 
 int allow_source_address(sip_msg_t *_msg, int addr_group);
@@ -78,7 +73,8 @@ int allow_source_address(sip_msg_t *_msg, int addr_group);
  * w_allow_source_address("group") equals to allow_address("group", "$si", "$sp")
  * but is faster.
  */
-int w_allow_source_address(struct sip_msg* _msg, char* _addr_group, char* _str2);
+int w_allow_source_address(
+		struct sip_msg *_msg, char *_addr_group, char *_str2);
 
 
 /*
@@ -86,17 +82,49 @@ int w_allow_source_address(struct sip_msg* _msg, char* _addr_group, char* _str2)
  * subnet table in any group. If yes, returns that group. If not returns -1.
  * Port value 0 in cached address and group table matches any port.
  */
-int allow_source_address_group(struct sip_msg* _msg, char* _str1, char* _str2);
+int allow_source_address_group(struct sip_msg *_msg, char *_str1, char *_str2);
 
-int ki_allow_source_address_group(sip_msg_t* _msg);
+int ki_allow_source_address_group(sip_msg_t *_msg);
 
 /*
  * Checks if address/port is found in cached address or
  * subnet table in any group. If yes, returns that group. If not returns -1.
  * Port value 0 in cached address and group table matches any port.
  */
-int allow_address_group(struct sip_msg* _msg, char* _addr, char* _port);
+int allow_address_group(struct sip_msg *_msg, char *_addr, char *_port);
 
-int ki_allow_address_group(sip_msg_t* _msg, str* _addr, int _port);
+int ki_allow_address_group(sip_msg_t *_msg, str *_addr, int _port);
+
+
+/*
+ * Obtain reference to global table
+ */
+struct addr_table *get_addr_hash_table(void);
+
+/*
+ * Release reference after get_*()
+ */
+void put_addr_hash_table(struct addr_table *);
+
+/*
+ * Obtain reference to global table
+ */
+struct subnet_table *get_subnet_table(void);
+
+/*
+ * Release reference after get_*()
+ */
+void put_subnet_table(struct subnet_table *);
+
+/*
+ * Obtain reference to global table
+ */
+struct domain_name_table *get_domain_name_table(void);
+
+/*
+ * Release reference after get_*()
+ */
+void put_domain_name_table(struct domain_name_table *);
+
 
 #endif /* ADDRESS_H */

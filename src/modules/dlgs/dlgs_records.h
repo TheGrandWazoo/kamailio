@@ -43,11 +43,12 @@ typedef struct _dlgs_stats {
 	unsigned int c_progress;
 	unsigned int c_answered;
 	unsigned int c_confirmed;
-	unsigned int c_terminted;
+	unsigned int c_terminated;
 	unsigned int c_notanswered;
 } dlgs_stats_t;
 
 void dlgs_update_stats(dlgs_stats_t *stats, int state, int val);
+void dlgs_get_stats(dlgs_stats_t *astats, dlgs_stats_t *fstats);
 
 typedef struct _dlgs_tag {
 	unsigned int hashid;
@@ -63,6 +64,7 @@ typedef struct _dlgs_item {
 	str ftag;              /* sip from-tag */
 	str ttag;              /* sip to-tag */
 	str ruid;              /* record unique id */
+	str branch;            /* branch id */
 	str src;               /* src field */
 	str dst;               /* dst field */
 	str data;              /* data field */
@@ -95,6 +97,7 @@ typedef struct _dlgs_sipfields {
 	str callid;
 	str ftag;
 	str ttag;
+	str branch;
 } dlgs_sipfields_t;
 /* clang-format on */
 
@@ -116,6 +119,7 @@ int dlgs_init(void);
 int dlgs_destroy(void);
 int dlgs_rpc_init(void);
 int dlgs_update_item(sip_msg_t *msg);
+int dlgs_find_item(sip_msg_t *msg);
 
 int dlgs_tags_add(sip_msg_t *msg, str *vtags);
 int dlgs_tags_rm(sip_msg_t *msg, str *vtags);

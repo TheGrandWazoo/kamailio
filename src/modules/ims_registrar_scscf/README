@@ -33,17 +33,20 @@ Richard Good
               3.6. subscription_expires_range (int)
               3.7. subscription_min_expires (int)
               3.8. subscription_max_expires (int)
-              3.9. user_data_dtd (string)
-              3.10. user_data_xsd (string)
-              3.11. support_wildcardPSI (int)
-              3.12. scscf_name (string)
-              3.13. store_profile_dereg (int)
-              3.14. cxdx_dest_realm (string)
-              3.15. cxdx_forced_peer (string)
-              3.16. append_branches (integer)
-              3.17. method_filtering (integer)
-              3.18. user_data_always (integer)
-              3.19. error_reply_code (int)
+              3.9. ue_unsubscribe_on_dereg (int)
+              3.10. user_data_dtd (string)
+              3.11. user_data_xsd (string)
+              3.12. support_wildcardPSI (int)
+              3.13. scscf_name (string)
+              3.14. store_profile_dereg (int)
+              3.15. cxdx_dest_realm (string)
+              3.16. cxdx_forced_peer (string)
+              3.17. append_branches (integer)
+              3.18. method_filtering (integer)
+              3.19. user_data_always (integer)
+              3.20. error_reply_code (int)
+              3.21. skip_multiple_bindings_on_reg_resp (int)
+              3.22. scscf_restoration_info_enabled (int)
 
         4. Functions
 
@@ -54,14 +57,18 @@ Richard Good
               4.5. assign_server_unreg(aysnc_reply_route, domain,
                       direction)
 
-              4.6. impu_registered(domain)
-              4.7. term_impu_registered(domain)
-              4.8. reg_fetch_contacts(domain, uri, profile)
-              4.9. reg_free_contacts(profile)
-              4.10. can_subscribe_to_reg(domain)
-              4.11. subscribe_to_reg(domain)
-              4.12. can_publish_reg(domain)
-              4.13. publish_reg(domain)
+              4.6. assign_server(async_reply_route, domain, direction,
+                      assignment_type)
+
+              4.7. orig_impu_has_contact(domain)
+              4.8. impu_registered(domain)
+              4.9. term_impu_registered(domain)
+              4.10. reg_fetch_contacts(domain, uri, profile)
+              4.11. reg_free_contacts(profile)
+              4.12. can_subscribe_to_reg(domain)
+              4.13. subscribe_to_reg(domain)
+              4.14. can_publish_reg(domain)
+              4.15. publish_reg(domain)
 
         5. RPC Commands
 
@@ -86,28 +93,34 @@ Richard Good
    1.7. Set subscription_min_expiresparameter
    1.8. Set subscription_max_expiresparameter
    1.9. Set user_data_dtdparameter
-   1.10. Set user_data_xsdparameter
-   1.11. Set support_wildcardPSIparameter
-   1.12. Set scscf_nameparameter
-   1.13. Set store_profile_deregparameter
-   1.14. Set cxdx_dest_realmparameter
-   1.15. Set cxdx_forced_peerparameter
+   1.10. Set user_data_dtdparameter
+   1.11. Set user_data_xsdparameter
+   1.12. Set support_wildcardPSIparameter
+   1.13. Set scscf_nameparameter
+   1.14. Set store_profile_deregparameter
+   1.15. Set cxdx_dest_realmparameter
    1.16. Set cxdx_forced_peerparameter
    1.17. Set cxdx_forced_peerparameter
-   1.18. Set user_data_alwaysparameter
-   1.19. Set error_reply_code parameter
-   1.20. save usage
-   1.21. lookup usage
-   1.22. lookup usage
-   1.23. unregister usage
-   1.24. impu_registered usage
-   1.25. term_impu_registered usage
-   1.26. reg_fetch_contacts usage
-   1.27. reg_free_contacts usage
-   1.28. can_subscribe_to_reg usage
-   1.29. subscribe_to_reg usage
-   1.30. can_publish_reg usage
-   1.31. publish_reg usage
+   1.18. Set cxdx_forced_peerparameter
+   1.19. Set user_data_alwaysparameter
+   1.20. Set error_reply_code parameter
+   1.21. Set skip_multiple_bindings_on_reg_resp parameter
+   1.22. Set scscf_restoration_info_enabled parameter
+   1.23. save usage
+   1.24. lookup usage
+   1.25. lookup usage
+   1.26. unregister usage
+   1.27. assign_server usage
+   1.28. Originating admission after trusted-peer validation
+   1.29. KEMI Lua admission after trusted-peer validation
+   1.30. impu_registered usage
+   1.31. term_impu_registered usage
+   1.32. reg_fetch_contacts usage
+   1.33. reg_free_contacts usage
+   1.34. can_subscribe_to_reg usage
+   1.35. subscribe_to_reg usage
+   1.36. can_publish_reg usage
+   1.37. publish_reg usage
 
 Chapter 1. Admin Guide
 
@@ -129,17 +142,20 @@ Chapter 1. Admin Guide
         3.6. subscription_expires_range (int)
         3.7. subscription_min_expires (int)
         3.8. subscription_max_expires (int)
-        3.9. user_data_dtd (string)
-        3.10. user_data_xsd (string)
-        3.11. support_wildcardPSI (int)
-        3.12. scscf_name (string)
-        3.13. store_profile_dereg (int)
-        3.14. cxdx_dest_realm (string)
-        3.15. cxdx_forced_peer (string)
-        3.16. append_branches (integer)
-        3.17. method_filtering (integer)
-        3.18. user_data_always (integer)
-        3.19. error_reply_code (int)
+        3.9. ue_unsubscribe_on_dereg (int)
+        3.10. user_data_dtd (string)
+        3.11. user_data_xsd (string)
+        3.12. support_wildcardPSI (int)
+        3.13. scscf_name (string)
+        3.14. store_profile_dereg (int)
+        3.15. cxdx_dest_realm (string)
+        3.16. cxdx_forced_peer (string)
+        3.17. append_branches (integer)
+        3.18. method_filtering (integer)
+        3.19. user_data_always (integer)
+        3.20. error_reply_code (int)
+        3.21. skip_multiple_bindings_on_reg_resp (int)
+        3.22. scscf_restoration_info_enabled (int)
 
    4. Functions
 
@@ -148,14 +164,18 @@ Chapter 1. Admin Guide
         4.3. lookup_path_to_contact(uri)
         4.4. unregister(domain)
         4.5. assign_server_unreg(aysnc_reply_route, domain, direction)
-        4.6. impu_registered(domain)
-        4.7. term_impu_registered(domain)
-        4.8. reg_fetch_contacts(domain, uri, profile)
-        4.9. reg_free_contacts(profile)
-        4.10. can_subscribe_to_reg(domain)
-        4.11. subscribe_to_reg(domain)
-        4.12. can_publish_reg(domain)
-        4.13. publish_reg(domain)
+        4.6. assign_server(async_reply_route, domain, direction,
+                assignment_type)
+
+        4.7. orig_impu_has_contact(domain)
+        4.8. impu_registered(domain)
+        4.9. term_impu_registered(domain)
+        4.10. reg_fetch_contacts(domain, uri, profile)
+        4.11. reg_free_contacts(profile)
+        4.12. can_subscribe_to_reg(domain)
+        4.13. subscribe_to_reg(domain)
+        4.14. can_publish_reg(domain)
+        4.15. publish_reg(domain)
 
    5. RPC Commands
 
@@ -172,6 +192,32 @@ Chapter 1. Admin Guide
    This module contains REGISTER processing logic for the S-CSCF. The
    'storage engine' of this module is provided by the ims_usrloc_scscf
    module:
+
+   The module handles HSS-initiated Cx Push-Profile-Requests (PPR)
+   carrying User-Data for existing public identities. Profile replacement
+   preserves registration and contact state. Identity-set changes,
+   wildcard identities, charging-information updates and
+   authentication-data updates are not supported by this receiver and are
+   rejected.
+
+   Cx Registration-Termination-Requests (RTR) invalidate registration and
+   contact state and remove cached profile and charging information.
+   Registration-event notifications include the removed contact URI.
+   Shared contacts belonging to identities outside the requested scope and
+   emergency contacts are protected by rejecting unsupported termination
+   scopes.
+
+   These Cx cache operations require the ims_usrloc_scscf module's db_mode
+   to be 0. Persistent database backends are not updated by these
+   operations. To reject ordinary originating calls after deregistration,
+   use orig_impu_has_contact() after verifying the trusted access peer in
+   the routing script.
+
+   Registration-event SUBSCRIBE responses advertise the configured S-CSCF
+   URI as Contact. P-CSCFs using PUA for reginfo must disable remote
+   Contact matching, since the watched IMPU and the notifier Contact are
+   different URIs:
+modparam("pua", "check_remote_contact", 0)
 
 2. Dependencies
 
@@ -203,17 +249,20 @@ Chapter 1. Admin Guide
    3.6. subscription_expires_range (int)
    3.7. subscription_min_expires (int)
    3.8. subscription_max_expires (int)
-   3.9. user_data_dtd (string)
-   3.10. user_data_xsd (string)
-   3.11. support_wildcardPSI (int)
-   3.12. scscf_name (string)
-   3.13. store_profile_dereg (int)
-   3.14. cxdx_dest_realm (string)
-   3.15. cxdx_forced_peer (string)
-   3.16. append_branches (integer)
-   3.17. method_filtering (integer)
-   3.18. user_data_always (integer)
-   3.19. error_reply_code (int)
+   3.9. ue_unsubscribe_on_dereg (int)
+   3.10. user_data_dtd (string)
+   3.11. user_data_xsd (string)
+   3.12. support_wildcardPSI (int)
+   3.13. scscf_name (string)
+   3.14. store_profile_dereg (int)
+   3.15. cxdx_dest_realm (string)
+   3.16. cxdx_forced_peer (string)
+   3.17. append_branches (integer)
+   3.18. method_filtering (integer)
+   3.19. user_data_always (integer)
+   3.20. error_reply_code (int)
+   3.21. skip_multiple_bindings_on_reg_resp (int)
+   3.22. scscf_restoration_info_enabled (int)
 
 3.1. default_expires (int)
 
@@ -341,76 +390,90 @@ om default_expires
         modparam("ims_registrar_scscf", "subscription_max_expires", 3600)
 ...
 
-3.9. user_data_dtd (string)
+3.9. ue_unsubscribe_on_dereg (int)
+
+   Many UEs do not unsubscribe on de-register, therefor if the parameter
+   is set to 0, the default, any subscription of that subscriber will be
+   removed and NOTIFY will be not sent. To disable this behaviour set this
+   parameter to 1.
+
+   Default value is 0 (disabled)
+
+   Example 1.9. Set user_data_dtdparameter
+...
+        modparam("ims_registrar_scscf", "ue_unsubscribe_on_dereg", 1)
+...
+
+3.10. user_data_dtd (string)
 
    DTD to check the user data received in SAA (Server Assignment Answer).
 
    Default value is NULL (none).
 
-   Example 1.9. Set user_data_dtdparameter
+   Example 1.10. Set user_data_dtdparameter
 ...
         modparam("ims_registrar_scscf", "user_data_dtd", "/usr/local/etc/kamaili
 o/CxDataType_Rel7.dtd")
 ...
 
-3.10. user_data_xsd (string)
+3.11. user_data_xsd (string)
 
    XSD to check the user data received in SAA (Server Assignment Answer).
 
    Default value is NULL (none).
 
-   Example 1.10. Set user_data_xsdparameter
+   Example 1.11. Set user_data_xsdparameter
 ...
         modparam("ims_registrar_scscf", "user_data_xsd", "/usr/local/etc/kamaili
 o/CxDataType_Rel7.xsd")
 ...
 
-3.11. support_wildcardPSI (int)
+3.12. support_wildcardPSI (int)
 
    indicate support for wildcard PSI is subscription profile (SAA)
 
    Default value is 0.
 
-   Example 1.11. Set support_wildcardPSIparameter
+   Example 1.12. Set support_wildcardPSIparameter
 ...
         modparam("ims_registrar_scscf", "support_wildcardPSI", 1)
 ...
 
-3.12. scscf_name (string)
+3.13. scscf_name (string)
 
    The name of the S-CSCF
 
    Default value is sip:scscf.ims.smilecoms.com:6060.
 
-   Example 1.12. Set scscf_nameparameter
+   Example 1.13. Set scscf_nameparameter
 ...
         modparam("ims_registrar_scscf", "scscf_name", "sip:scscf2.ims.smilecoms.
 com:6060")
 ...
 
-3.13. store_profile_dereg (int)
+3.14. store_profile_dereg (int)
 
    Should the subscription profile be stored on de-registration
 
    Default value 0.
 
-   Example 1.13. Set store_profile_deregparameter
+   Example 1.14. Set store_profile_deregparameter
 ...
         modparam("ims_registrar_scscf", "store_profile_dereg", 1)
 ...
 
-3.14. cxdx_dest_realm (string)
+3.15. cxdx_dest_realm (string)
 
    Destination realm to be used in Diameter messages
 
    Default value "ims.smilecoms.com"
 
-   Example 1.14. Set cxdx_dest_realmparameter
+   Example 1.15. Set cxdx_dest_realmparameter
 ...
         modparam("ims_registrar_scscf", "cxdx_dest_realm", "my.domain,org")
 ...
 
-3.15. cxdx_forced_peer (string)
+3.16. cxdx_forced_peer (string)
 
    FQDN of Diameter Peer (HSS) to use for communication (SAR). If you use
    this, the routing defined in your diameter xml configuration file (CDP)
@@ -419,13 +482,13 @@ com:6060")
 
    Default value NULL (none)
 
-   Example 1.15. Set cxdx_forced_peerparameter
+   Example 1.16. Set cxdx_forced_peerparameter
 ...
         modparam("ims_registrar_scscf", "cxdx_forced_peer", "hss.ims.smilecoms.c
 om")
 ...
 
-3.16. append_branches (integer)
+3.17. append_branches (integer)
 
    The parameter controls how lookup function processes multiple contacts.
    If there are multiple contacts for the given username in usrloc and
@@ -438,36 +501,36 @@ om")
 
    Default value is 0 (disabled)
 
-   Example 1.16. Set cxdx_forced_peerparameter
+   Example 1.17. Set cxdx_forced_peerparameter
 ...
         modparam("ims_registrar_scscf", "append_branches", 1)
 ...
 
-3.17. method_filtering (integer)
+3.18. method_filtering (integer)
 
    Tells if the contact filtering based on supported methods should be
    performed during lookup. It's enabled only if it has a non zero value.
 
    Default value is 0 (disabled)
 
-   Example 1.17. Set cxdx_forced_peerparameter
+   Example 1.18. Set cxdx_forced_peerparameter
 ...
         modparam("ims_registrar_scscf", "method_filtering", 1)
 ...
 
-3.18. user_data_always (integer)
+3.19. user_data_always (integer)
 
    If specified this will make the S-CSCF always request user data from
    HSS.
 
    Default value is 0 (disabled)
 
-   Example 1.18. Set user_data_alwaysparameter
+   Example 1.19. Set user_data_alwaysparameter
 ...
         modparam("ims_registrar_scscf", "user_data_always", 1)
 ...
 
-3.19. error_reply_code (int)
+3.20. error_reply_code (int)
 
    In certain error conditions, the S-CSCF may not be able to process the
    request (e.g. in case of database failures). Per default and according
@@ -480,9 +543,54 @@ om")
 
    Default value is 500.
 
-   Example 1.19. Set error_reply_code parameter
+   Example 1.20. Set error_reply_code parameter
 ...
         modparam("ims_registrar_scscf", "error_reply_code", 503)
+...
+
+3.21. skip_multiple_bindings_on_reg_resp (int)
+
+   If set to 1 - on Re-Registration registrar sends in 200 OK reply only
+   current contact in case of multiple bindings. If set to 0 - on
+   Re-Registration registrar sends in 200 OK reply all contacts in case of
+   multiple bindings according to RFC3261.
+
+   Default value is 0.
+
+   Example 1.21. Set skip_multiple_bindings_on_reg_resp parameter
+...
+        modparam("ims_registrar_scscf", "skip_multiple_bindings_on_reg_resp", 1)
+...
+
+3.22. scscf_restoration_info_enabled (int)
+
+   If set to 1, the S-CSCF takes part in the S-CSCF restoration procedures
+   of 3GPP TS 23.380 using the HSS rather than a database: every Cx
+   Server-Assignment-Request carries a Supported-Features AVP naming
+   IMSRestorationInd (3GPP TS 29.229 table 7.1.1), and those sent for a
+   REGISTRATION or RE_REGISTRATION also back up the contact at the HSS in
+   an SCSCF-Restoration-Info AVP: the whole Contact header field value,
+   its Path and the Call-ID of the REGISTER. The HSS hands them back in
+   the answer to a NO_ASSIGNMENT or UNREGISTERED_USER request sent by
+   assign_server() for a user it holds as registered, and the S-CSCF then
+   binds that contact again and serves the user as registered.
+
+   Only the contact of the first Contact header is backed up, and only
+   when the REGISTER has a Path (see use_path). The restored binding is
+   granted the registration time of the REGISTER it was backed up from,
+   counted from the moment it is restored.
+
+   Enable it only towards an HSS that supports IMSRestorationInd. The
+   Supported-Features AVP goes out with the M bit set on a request that
+   carries SCSCF-Restoration-Info (3GPP TS 29.229 7.2.1), so an HSS
+   without the feature rejects every REGISTRATION and RE_REGISTRATION
+   request, and with it the REGISTER.
+
+   Default value is 0 (disabled).
+
+   Example 1.22. Set scscf_restoration_info_enabled parameter
+...
+modparam("ims_registrar_scscf", "scscf_restoration_info_enabled", 1)
 ...
 
 4. Functions
@@ -492,14 +600,18 @@ om")
    4.3. lookup_path_to_contact(uri)
    4.4. unregister(domain)
    4.5. assign_server_unreg(aysnc_reply_route, domain, direction)
-   4.6. impu_registered(domain)
-   4.7. term_impu_registered(domain)
-   4.8. reg_fetch_contacts(domain, uri, profile)
-   4.9. reg_free_contacts(profile)
-   4.10. can_subscribe_to_reg(domain)
-   4.11. subscribe_to_reg(domain)
-   4.12. can_publish_reg(domain)
-   4.13. publish_reg(domain)
+   4.6. assign_server(async_reply_route, domain, direction,
+          assignment_type)
+
+   4.7. orig_impu_has_contact(domain)
+   4.8. impu_registered(domain)
+   4.9. term_impu_registered(domain)
+   4.10. reg_fetch_contacts(domain, uri, profile)
+   4.11. reg_free_contacts(profile)
+   4.12. can_subscribe_to_reg(domain)
+   4.13. subscribe_to_reg(domain)
+   4.14. can_publish_reg(domain)
+   4.15. publish_reg(domain)
 
 4.1. save(async_reply_route, domain, mode, flags)
 
@@ -523,7 +635,7 @@ om")
 
    This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE
 
-   Example 1.20. save usage
+   Example 1.23. save usage
 ...
 if (!impu_registered("location")) {
    save("PRE_REG_SAR_REPLY","location");
@@ -554,7 +666,7 @@ if (!impu_registered("location")) {
 
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.21. lookup usage
+   Example 1.24. lookup usage
 ...
 lookup("location");
 switch ($retcode) {
@@ -583,7 +695,7 @@ switch ($retcode) {
 
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.22. lookup usage
+   Example 1.25. lookup usage
 ...
 lookup_path_to_contact($ruri);
 ...
@@ -598,18 +710,94 @@ lookup_path_to_contact($ruri);
 
    This function can be used in REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.23. unregister usage
+   Example 1.26. unregister usage
 ...
 unregister("location");
 ...
 
 4.5. assign_server_unreg(aysnc_reply_route, domain, direction)
 
-   TBD
+   Same as assign_server() with a Server-Assignment-Type of 3
+   (UNREGISTERED_USER).
 
    used in REQUEST_ROUTE
 
-4.6. impu_registered(domain)
+4.6. assign_server(async_reply_route, domain, direction, assignment_type)
+
+   Sends a Cx Server-Assignment-Request on behalf of a request other than
+   REGISTER, downloading the served user's profile into usrloc. The
+   transaction is suspended and resumed in async_reply_route once the SAA
+   arrives, with $avp(saa_return_code) set to 1 when a profile was stored
+   and to a negative value otherwise. No reply is sent by the module; that
+   is left to the route.
+
+   Meaning of the parameters is as follows:
+     * async_reply_route - route to resume in when the SAA arrives.
+     * domain - Logical domain within registrar.
+     * direction - "orig" takes the served user from the
+       P-Asserted-Identity, "term" from the Request-URI.
+     * assignment_type - the Server-Assignment-Type, an integer or a
+       variable holding one:
+          + 0 (NO_ASSIGNMENT) - fetch the profile without changing
+            anything at the HSS. The HSS answers DIAMETER_UNABLE_TO_COMPLY
+            when another S-CSCF is assigned to the user. An IMPU already
+            in usrloc keeps its registration state and bindings; a new one
+            is stored as unregistered. This is the S-CSCF restoration
+            procedure for an originating request (3GPP TS 23.380 4.4.2).
+          + 3 (UNREGISTERED_USER) - fetch the unregistered profile and
+            tell the HSS the user is unregistered here (3GPP TS 29.228
+            6.1.2.1).
+       With scscf_restoration_info_enabled, either answer can carry the
+       restoration information backed up at REGISTER, for a user the HSS
+       holds as registered. Each IMPU of the profile is then stored as
+       registered with that contact bound to it; a contact still bound in
+       usrloc is linked to the IMPU as it is.
+       Any other type is refused: REGISTRATION and RE_REGISTRATION are
+       sent by save(), and the de-registration types would leave usrloc
+       out of step with the HSS.
+
+   This function can be used in REQUEST_ROUTE.
+
+   Example 1.27. assign_server usage
+...
+assign_server("ORIG_SAA", "location", "orig", 0);
+...
+route[ORIG_SAA] {
+    if($avp(saa_return_code) != 1) {
+        t_reply("504", "Server Time-out");
+        exit;
+    }
+    # continue as for a registered user
+}
+...
+
+4.7. orig_impu_has_contact(domain)
+
+   Checks the originating identity in P-Asserted-Identity. Returns 1 only
+   if an unbarred IMPU has a stored profile, registered state and a valid
+   linked contact. Returns -1 otherwise. Use only after verifying that the
+   request comes from a trusted P-CSCF. It does not rewrite the
+   Request-URI or check the To identity.
+
+   The KEMI export is ims_registrar_scscf.orig_impu_has_contact(domain).
+   The domain must already be registered with ims_usrloc_scscf. Native
+   configuration functions that use the domain, such as save(), register
+   it during configuration fixup. The KEMI export returns the same integer
+   result as the native function.
+
+   Example 1.28. Originating admission after trusted-peer validation
+if (!orig_impu_has_contact("location")) {
+    send_reply("403", "Originating registration required");
+    exit;
+}
+
+   Example 1.29. KEMI Lua admission after trusted-peer validation
+if KSR.ims_registrar_scscf.orig_impu_has_contact("location") < 0 then
+    KSR.sl.send_reply(403, "Originating registration required")
+    KSR.x.exit()
+end
+
+4.8. impu_registered(domain)
 
    This function checks if the IMPU in the To header is registered in
    usrloc.
@@ -623,7 +811,7 @@ unregister("location");
 
    This function can be used in REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.24. impu_registered usage
+   Example 1.30. impu_registered usage
 ...
 impu_registered("location");
 switch ($retcode) {
@@ -635,7 +823,7 @@ switch ($retcode) {
 };
 ...
 
-4.7. term_impu_registered(domain)
+4.9. term_impu_registered(domain)
 
    This function checks if the IMPU in the Request-URI is registered in
    usrloc.
@@ -649,7 +837,7 @@ switch ($retcode) {
 
    This function can be used in REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.25. term_impu_registered usage
+   Example 1.31. term_impu_registered usage
 ...
 term_impu_registered("location");
 switch ($retcode) {
@@ -661,10 +849,10 @@ switch ($retcode) {
 };
 ...
 
-4.8. reg_fetch_contacts(domain, uri, profile)
+4.10. reg_fetch_contacts(domain, uri, profile)
 
    The function fetches the contacts for 'uri' from table 'domain' to
-   pseudo-variable $imssulc(profile) [imssulc = ims scscf ulc].
+   pseudo-variable $ulc(profile) [ulc = ims scscf ulc].
 
    Meaning of the parameters is as follows:
      * domain - Name of table that should be used for the lookup of
@@ -672,18 +860,18 @@ switch ($retcode) {
      * uri - The SIP URI address of the user which to fetch the contact
        addresses for. It can contain pseudo-variables that are evaluated
        at runtime.
-     * profile - Name of $imssulc pseudo-variable profile that will store
-       the fetched contacts. It is a static string.
+     * profile - Name of $ulc pseudo-variable profile that will store the
+       fetched contacts. It is a static string.
 
    This function can be used in REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.26. reg_fetch_contacts usage
+   Example 1.32. reg_fetch_contacts usage
 ...
 reg_fetch_contacts("location", "$ru", "callee");
 reg_fetch_contacts("location", "sip:user@kamailio.org", "caller");
 ...
 
-4.9. reg_free_contacts(profile)
+4.11. reg_free_contacts(profile)
 
    The function frees the contacts from pseudo-variable $ulc(profile).
    Should be called to release the content of a profile. Anyhow, fetching
@@ -691,21 +879,21 @@ reg_fetch_contacts("location", "sip:user@kamailio.org", "caller");
    data in that profile.
 
    Meaning of the parameters is as follows:
-     * profile - Name of $imssulc pseudo-variable profile that stores the
+     * profile - Name of $ulc pseudo-variable profile that stores the
        contacts. It is a static string.
 
    This function can be used in REQUEST_ROUTE, FAILURE_ROUTE
 
-   Example 1.27. reg_free_contacts usage
+   Example 1.33. reg_free_contacts usage
 ...
 reg_free_contacts("callee");
 ...
 
-4.10. can_subscribe_to_reg(domain)
+4.12. can_subscribe_to_reg(domain)
 
    This function checks to see that a SUBSCRIBE request is authorised to
    subscribe to the particular identity. Only 3 entities can subscribe:
-     * The user agent to it's own state
+     * The user agent to its own state
      * The P-CSCF specified in the path header for that user
      * Application Server (AS) not yet implemented
 
@@ -714,14 +902,14 @@ reg_free_contacts("callee");
 
    This function can be used in REQUEST_ROUTE
 
-   Example 1.28. can_subscribe_to_reg usage
+   Example 1.34. can_subscribe_to_reg usage
 ...
 if (can_subscribe_to_reg("location")){
      $var(ret)= subscribe_to_reg("location");
 }
 ...
 
-4.11. subscribe_to_reg(domain)
+4.13. subscribe_to_reg(domain)
 
    Save the subscription to the REG event for the UAC or the appropriate
    P-CSCF (in the path to the UAC).
@@ -731,18 +919,18 @@ if (can_subscribe_to_reg("location")){
 
    This function can be used in REQUEST_ROUTE
 
-   Example 1.29. subscribe_to_reg usage
+   Example 1.35. subscribe_to_reg usage
 ...
 if (can_subscribe_to_reg("location")){
      $var(ret)= subscribe_to_reg("location");
 }
 ...
 
-4.12. can_publish_reg(domain)
+4.14. can_publish_reg(domain)
 
    This function checks to see that a PUBLISH request is authorised to
    publish for a particular identity. Only 3 entities can publish:
-     * The user agent to it's own state
+     * The user agent to its own state
      * The P-CSCF specified in the path header for that user
      * Application Server (AS) not yet implemented
 
@@ -751,14 +939,14 @@ if (can_subscribe_to_reg("location")){
 
    This function can be used in REQUEST_ROUTE
 
-   Example 1.30. can_publish_reg usage
+   Example 1.36. can_publish_reg usage
 ...
 if (can_publish_reg("location")){
     $var(ret)= publish_reg("location");
 }
 ...
 
-4.13. publish_reg(domain)
+4.15. publish_reg(domain)
 
    Save the publish to the REG event for the UAC or the appropriate P-CSCF
    (in the path to the UAC).
@@ -768,7 +956,7 @@ if (can_publish_reg("location")){
 
    This function can be used in REQUEST_ROUTE
 
-   Example 1.31. publish_reg usage
+   Example 1.37. publish_reg usage
 ...
 if (can_publish_reg("location")){
     $var(ret)= publish_reg("location");
@@ -824,9 +1012,11 @@ Chapter 2. Frequently Asked Questions
    First at all check if your question was already answered on one of our
    mailing lists:
      * User Mailing List -
-       https://lists.kamailio.org/cgi-bin/mailman/listinfo/sr-users
+       https://lists.kamailio.org/mailman3/postorius/lists/sr-users.lists.
+       kamailio.org/
      * Developer Mailing List -
-       https://lists.kamailio.org/cgi-bin/mailman/listinfo/sr-dev
+       https://lists.kamailio.org/mailman3/postorius/lists/sr-dev.lists.ka
+       mailio.org/
 
    E-mails regarding any stable Kamailio release should be sent to
    <sr-users@lists.kamailio.org> and e-mails regarding development

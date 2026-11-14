@@ -1,4 +1,4 @@
-/* 
+/*
  * TLS module
  *
  * Copyright (C) 2010 iptelorg GmbH
@@ -32,16 +32,23 @@
 #include "../../core/str.h"
 #include "tls_domain.h"
 
-static inline int tls_err_ret(char *s, SSL* ssl,
-		tls_domains_cfg_t **tls_domains_cfg)
+#define KSR_TLS_KEYLOG_MODE_INIT (1)
+#define KSR_TLS_KEYLOG_MODE_ACTIVE (1 << 1)
+#define KSR_TLS_KEYLOG_MODE_MLOG (1 << 2)
+#define KSR_TLS_KEYLOG_MODE_FILE (1 << 3)
+#define KSR_TLS_KEYLOG_MODE_PEER (1 << 4)
+#define KSR_TLS_KEYLOG_MODE_TUPLE (1 << 5)
+#define KSR_TLS_KEYLOG_MODE_VFILTER (1 << 10)
+
+static inline int tls_err_ret(
+		char *s, SSL *ssl, tls_domains_cfg_t **tls_domains_cfg)
 {
 	long err;
 	int ret = 0;
 	const char *sn = NULL;
 
-	if ((*tls_domains_cfg)->srv_default->ctx &&
-		(*tls_domains_cfg)->srv_default->ctx[0])
-	{
+	if((*tls_domains_cfg)->srv_default->ctx
+			&& (*tls_domains_cfg)->srv_default->ctx[0]) {
 		if(ssl) {
 			sn = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 		}
@@ -54,28 +61,28 @@ static inline int tls_err_ret(char *s, SSL* ssl,
 	return ret;
 }
 
-#define TLS_ERR_RET(r, s) \
-do { \
-	(r) = tls_err_ret((s), NULL, tls_domains_cfg); \
-} while(0)
+#define TLS_ERR_RET(r, s)                              \
+	do {                                               \
+		(r) = tls_err_ret((s), NULL, tls_domains_cfg); \
+	} while(0)
 
 
-#define TLS_ERR(s) \
-do { \
-	tls_err_ret((s), NULL, tls_domains_cfg); \
-} while(0)
+#define TLS_ERR(s)                               \
+	do {                                         \
+		tls_err_ret((s), NULL, tls_domains_cfg); \
+	} while(0)
 
-#define TLS_ERR_SSL(s, ssl) \
-do { \
-	tls_err_ret((s), (ssl), tls_domains_cfg); \
-} while(0)
+#define TLS_ERR_SSL(s, ssl)                       \
+	do {                                          \
+		tls_err_ret((s), (ssl), tls_domains_cfg); \
+	} while(0)
 
 /*
  * Make a shared memory copy of ASCII zero terminated string
  * Return value: -1 on error
  *                0 on success
  */
-int shm_asciiz_dup(char** dest, char* val);
+int shm_asciiz_dup(char **dest, char *val);
 
 
 /*
@@ -83,4 +90,15 @@ int shm_asciiz_dup(char** dest, char* val);
  */
 void collect_garbage(void);
 
+void tls_openssl_clear_errors(void);
+
+int ksr_tls_keylog_file_init(void);
+int ksr_tls_keylog_file_write(const SSL *ssl, const char *line);
+int ksr_tls_keylog_peer_init(void);
+int ksr_tls_keylog_peer_send(const SSL *ssl, const char *line);
+int ksr_tls_keylog_vfilter_match(const char *line);
+unsigned char *cert_to_x509_DER(X509 *cert, int *len);
+X509 *x509_DER_to_cert(const unsigned char *der_bytes, int len);
+unsigned char *stack_to_x509_DER(STACK_OF(X509) * stack, int *out_len);
+STACK_OF(X509) * x509_DER_to_stack(const unsigned char *der_buf, int der_len);
 #endif /* _TLS_UTIL_H */

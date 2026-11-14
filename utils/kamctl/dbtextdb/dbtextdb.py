@@ -1,7 +1,25 @@
 #!/usr/bin/python3
 #
 # Copyright 2008 Google Inc. All Rights Reserved.
-
+#
+# This file is part of Kamailio, a free SIP server.
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Kamailio is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version
+#
+# Kamailio is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+#
 """SQL-like access layer for dbtext.
 
 This module provides the glue for kamctl to interact with dbtext files
@@ -51,7 +69,7 @@ class DBText(object):
         self.count = False    # where or not using COUNT()
         self.aliases = {}     # column aliases (SELECT AS)
         self.targets = {}     # target columns-value pairs for INSERT/UPDATE
-        self.args = ''        # query arguments preceeding the ;
+        self.args = ''        # query arguments preceding the ;
         self.command = ''     # which command are we executing
         self.strings = []     # list of string literals parsed from the query
         self.parens = []      # list of parentheses parsed from the query
@@ -86,7 +104,7 @@ class DBText(object):
             self.tokens.pop()  # ORDER
 
         elif 'BY' in self.tokens:
-            raise ParseError('BY must be preceeded by ORDER')
+            raise ParseError('BY must be preceded by ORDER')
 
         Debug('Order by: ' + self.order_by)
 
@@ -438,7 +456,7 @@ class DBText(object):
         self.count = False    # where or not using COUNT()
         self.aliases = {}     # column aliases (SELECT AS)
         self.targets = {}     # target columns-value pairs for INSERT/UPDATE
-        self.args = ''        # query arguments preceeding the ;
+        self.args = ''        # query arguments preceding the ;
         self.command = ''     # which command are we executing
         self.strings = []     # list of string literals parsed from the query
         self.parens = []      # list of parentheses parsed from the query
@@ -566,7 +584,7 @@ class DBText(object):
             if c in delims:
                 if not started:
                     if mode == 'parens' and c != delims[0]:
-                        raise ParseError('Found closing delimeter %s before '
+                        raise ParseError('Found closing delimiter %s before '
                                          'corresponding %s' % (c, delims[0]))
                     started += 1
                     delim = c
@@ -1135,7 +1153,7 @@ class DBText(object):
             else:
                 header = '%s)' % header
 
-        self.temp_file.write(header.strip() + '\n')
+        self.temp_file.write((header.strip() + '\n').encode())
 
         # write data
         for row in self.data:
@@ -1143,7 +1161,7 @@ class DBText(object):
             for col in columns:
                 row_str = '%s:%s' % (row_str, row[col])
 
-            self.temp_file.write(row_str[1:] + '\n')
+            self.temp_file.write((row_str[1:] + '\n').encode())
 
         self.temp_file.flush()
 
@@ -1159,7 +1177,7 @@ class DBText(object):
             Debug('Copying %s to %s' % (temp_file, table_file))
             shutil.copy(self.temp_file.name, self.location + '/' + self.table)
 
-    def _ParsePairs(self, s, delimeter):
+    def _ParsePairs(self, s, delimiter):
         """Parses out name value pairs from a string.
 
         String contains name=value pairs
@@ -1167,7 +1185,7 @@ class DBText(object):
 
         Args:
             s: string
-            delimeter: string
+            delimiter: string
 
         Returns:
             my_dict: dictionary
@@ -1177,7 +1195,7 @@ class DBText(object):
         """
         my_dict = {}
         Debug('parse pairs: [%s]' % s)
-        pairs = s.split(delimeter)
+        pairs = s.split(delimiter)
         for pair in pairs:
             if '=' not in pair:
                 raise ParseError('Invalid condition pair: ' + pair)

@@ -29,12 +29,18 @@
 #include <sys/time.h>
 #include <time.h>
 
-/* time(2) equivalent, using ser internal timers (faster then a syscall) */
-time_t ser_time(time_t* t);
+struct timer_ctx;
+
+time_t ksr_time_ctx(struct timer_ctx *td, time_t *t);
+int ksr_gettimeofday_ctx(
+		struct timer_ctx *td, struct timeval *tv, const struct timezone *tz);
+
+/* time(2) equivalent, using ser internal timers (faster than a syscall) */
+time_t ser_time(time_t *t);
 
 /* gettimeofday(2) equivalent, faster but much more imprecise
  * (in normal conditions should be within 0.1 s of the real time)
  * WARNING: ignores tz (it's obsolete anyway) */
-int ser_gettimeofday(struct timeval* tv, const struct timezone *tz);
+int ser_gettimeofday(struct timeval *tv, const struct timezone *tz);
 
 #endif /* _ser_time_h */

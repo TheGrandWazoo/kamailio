@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -57,9 +59,9 @@
 #define PS_PCACHE_RECORD 2
 
 /** TM bind */
-extern struct tm_binds tmb;
+extern struct tm_binds _pres_tmb;
 
-extern sl_api_t slb;
+extern sl_api_t _pres_slb;
 
 /* DB module bind */
 extern db_func_t pa_dbf;
@@ -73,7 +75,7 @@ extern str watchers_table;
 
 extern int pres_counter;
 extern int pres_pid;
-extern int pres_startup_time;
+extern unsigned int pres_startup_time;
 extern int pres_expires_offset;
 extern int pres_cseq_offset;
 extern str pres_server_address;
@@ -84,6 +86,7 @@ extern int pres_subs_dbmode;
 extern int publ_cache_mode;
 extern int pres_sphere_enable;
 extern int pres_timeout_rm_subs;
+extern int pres_refresh_record_route;
 extern int pres_send_fast_notify;
 extern int shtable_size;
 extern shtable_t subs_htable;
@@ -93,12 +96,20 @@ extern int pres_fetch_rows;
 extern int pres_waitn_time;
 extern int pres_notifier_poll_rate;
 extern int pres_notifier_processes;
+extern int pres_notifier_cluster_size;
+extern int pres_notifier_cluster_id;
 extern int pres_force_delete;
 extern int pres_startup_mode;
 extern str pres_xavp_cfg;
 extern int pres_retrieve_order;
 extern str pres_retrieve_order_by;
 extern int pres_enable_dmq;
+extern int pres_enable_pres_dmq;
+extern int pres_enable_pres_sync_dmq;
+extern int pres_enable_subs_dmq;
+extern int pres_enable_subs_sync_dmq;
+extern int pres_skip_notify_dmq;
+extern str pres_default_socket;
 extern int pres_subs_respond_200;
 
 extern int phtable_size;

@@ -21,9 +21,26 @@ endif
 ifeq ($(HIREDIS_BUILDER),)
 	HIREDISDEFS=-I$(LOCALBASE)/include -I$(LOCALBASE)/include/hiredis -I/usr/include/hiredis
 	HIREDISLIBS=-L$(LOCALBASE)/lib -lhiredis
+	ifneq ($(shell ls $(LOCALBASE) | grep libhiredis_ssl.so),)
+		HIREDISDEFS += -DWITH_SSL
+		HIREDISLIBS += -lhiredis_ssl
+	endif
 else
 	HIREDISDEFS = $(shell $(HIREDIS_BUILDER) --cflags)
 	HIREDISLIBS = $(shell $(HIREDIS_BUILDER) --libs)
+	HIREDISLIBSPATH = $(shell $(HIREDIS_BUILDER) --libs-only-L | cut -c 3-)
+    ifeq ($(HIREDISLIBSPATH),)
+        GCCSEARCHDIRS = $(shell $(CC) -print-search-dirs | grep -Eo '^.*libraries: =.*' | cut -d "=" -f2- | tr : ' ')
+        ifneq ($(shell find $(GCCSEARCHDIRS) -name libhiredis_ssl.so 2>/dev/null),)
+		    HIREDISDEFS += -DWITH_SSL
+		    HIREDISLIBS += -lhiredis_ssl
+        endif
+    else
+        ifneq ($(shell ls $(HIREDISLIBSPATH) | grep libhiredis_ssl.so),)
+		HIREDISDEFS += -DWITH_SSL
+		HIREDISLIBS += -lhiredis_ssl
+        endif
+    endif
 
 ifeq (,$(findstring hiredis,$(HIREDISDEFS)))
 	DEFS+=-DWITH_HIREDIS_PATH
@@ -32,6 +49,10 @@ endif
 ifeq ($(HIREDISLIBS),-L -lhiredis)
 		HIREDISDEFS = $(shell $(HIREDIS_BUILDER) --cflags) /opt/local/include
 		HIREDISLIBS = -L/opt/local/lib -lhiredis
+		ifneq ($(shell ls /opt/local/lib | grep libhiredis_ssl.so),)
+			HIREDISDEFS += -DWITH_SSL
+			HIREDISLIBS += -lhiredis_ssl
+		endif
 endif
 
 endif
@@ -39,16 +60,35 @@ endif
 DEFS+=$(HIREDISDEFS)
 LIBS=$(HIREDISLIBS)
 
-ifneq ($(HIREDIS_CLUSTER_BUILDER),)
-	HIREDISCLUSTERDEFS = $(shell $(HIREDIS_CLUSTER_BUILDER) --cflags)
-	HIREDISCLUSTERLIBS = $(shell $(HIREDIS_CLUSTER_BUILDER) --libs)
-	DEFS+=-DWITH_HIREDIS_CLUSTER
-	DEFS+=$(HIREDISCLUSTERDEFS)
-	LIBS+=$(HIREDISCLUSTERLIBS)
+# Mode switches:
+# - WITH_REDIS_CLUSTER=1: enable cluster mode if hiredis_cluster exists
+# - WITH_REDIS_CLUSTER=0: force normal (non-cluster) mode
+# - WITH_SENTINELS=1: (default) enable sentinel mode and disable cluster mode
+WITH_REDIS_CLUSTER ?= 0
+WITH_SENTINELS ?= 1
+
+ifeq ($(WITH_SENTINELS),1)
+DEFS+=-DWITH_SENTINELS
 endif
 
-SERLIBPATH=../../lib
-SER_LIBS=$(SERLIBPATH)/srdb2/srdb2 $(SERLIBPATH)/srdb1/srdb1
+ifneq ($(HIREDIS_CLUSTER_BUILDER),)
+ifeq ($(WITH_SENTINELS),1)
+$(info db_redis: WITH_SENTINELS=1, skipping hiredis cluster mode)
+else ifeq ($(WITH_REDIS_CLUSTER),0)
+$(info db_redis: WITH_REDIS_CLUSTER=0, forcing normal (non-cluster) mode)
+else
+HIREDISCLUSTERDEFS = $(shell $(HIREDIS_CLUSTER_BUILDER) --cflags)
+HIREDISCLUSTERLIBS = $(shell $(HIREDIS_CLUSTER_BUILDER) --libs)
+HIREDISCLUSTERLIBSPATH = $(shell $(HIREDIS_CLUSTER_BUILDER) --libs-only-L | cut -c 3-)
+ifneq ($(shell ls $(HIREDISCLUSTERLIBSPATH) | grep libhiredis_cluster_ssl.so),)
+HIREDISCLUSTERDEFS += -DWITH_SSL
+HIREDISCLUSTERLIBS += -lhiredis_cluster_ssl
+endif
+DEFS+=-DWITH_HIREDIS_CLUSTER
+DEFS+=$(HIREDISCLUSTERDEFS)
+LIBS+=$(HIREDISCLUSTERLIBS)
+endif
+endif
 
 include ../../Makefile.modules
 

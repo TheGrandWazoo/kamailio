@@ -1,4 +1,4 @@
-/* 
+/*
  * TLS module
  *
  * Copyright (C) 2005,2006 iptelorg GmbH
@@ -31,22 +31,17 @@
 
 #include <openssl/ssl.h>
 
-#ifndef OPENSSL_NO_TLSEXT
-#ifndef SSL_CTRL_SET_TLSEXT_HOSTNAME
-#define OPENSSL_NO_TLSEXT
-#endif
-#endif
 
-tls_domains_cfg_t* tls_load_config(str* filename);
+tls_domains_cfg_t *tls_load_config(str *filename);
 
 /*
  * Convert TLS method string to integer
  */
-int tls_parse_method(str* method);
+int tls_parse_method(str *method);
 
 /*
  * Convert TLS verify_client string to integer
  */
-int tls_parse_verify_client(str* verify_client);
+int tls_parse_verify_client(str *verify_client);
 
 #endif /* _TLS_CONFIG_H */

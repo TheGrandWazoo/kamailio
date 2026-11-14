@@ -23,15 +23,15 @@
 		of the application.
 	</para>
 	<para>
-		It does not provide functions for the native &kamailio;.cfg.
+		It does not provide functions for the native &kamailioconfig;.
 	</para>
 	<para>
 		To see the KEMI functions exported by this module, see:
 		<itemizedlist>
 			<listitem>
 			<para>
-				<ulink url="http://kamailio.org/docs/tutorials/devel/kamailio-kemi-framework/">
-					http://kamailio.org/docs/tutorials/devel/kamailio-kemi-framework/</ulink>
+				<ulink url="https://kamailio.org/docs/tutorials/devel/kamailio-kemi-framework/">
+					https://kamailio.org/docs/tutorials/devel/kamailio-kemi-framework/</ulink>
 			</para>
 			</listitem>
 		</itemizedlist>

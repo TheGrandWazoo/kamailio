@@ -1,6 +1,24 @@
 #!/usr/bin/python
 #
 # Copyright 2008 Google Inc. All Rights Reserved.
+#
+# This file is part of Kamailio, a free SIP server.
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Kamailio is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version
+#
+# Kamailio is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 """Test for dbtext_query."""
 
@@ -500,7 +518,7 @@ class DBTextTest(unittest.TestCase):
     db_conn.CleanUp()
 
     query = ('delete from unsorted_table where id = 5;')
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'id': 1, 'user': 'fred', 'domain':
                                      'test.com', 'number': 2125551234},
                                     {'id': 4, 'user': 'alex', 'domain':
@@ -514,7 +532,7 @@ class DBTextTest(unittest.TestCase):
     # test insert with auto increment
     query = ("insert into unsorted_table set user='jake', domain='test.com',"
              'number = 2125551456;')
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'id': 1, 'user': 'fred', 'domain':
                                      'test.com', 'number': 2125551234},
                                     {'id': 4, 'user': 'alex', 'domain':
@@ -531,7 +549,7 @@ class DBTextTest(unittest.TestCase):
 
     # test insert with null value
     query = ("insert into test set col1='asdf';")
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'col2': 'item2', 'id': 1, 'col1':
                                      'item1\\:'},
                                     {'col2': '', 'id': 2, 'col1':
@@ -543,7 +561,7 @@ class DBTextTest(unittest.TestCase):
 
     # test insert with null value alternate syntax
     query = ("insert test ( col1) values ('asdf');")
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'col2': 'item2', 'id': 1, 'col1':
                                      'item1\\:'},
                                     {'col2': '', 'id': 2, 'col1':
@@ -555,7 +573,7 @@ class DBTextTest(unittest.TestCase):
 
     # test insert with colon inside value
     query = ("insert into test set col1='as:df';")
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'col2': 'item2', 'id': 1, 'col1':
                                      'item1\\:'},
                                     {'col2': '', 'id': 2, 'col1':
@@ -567,7 +585,7 @@ class DBTextTest(unittest.TestCase):
 
     # test insert with escaped colon inside value
     query = ("insert into test set col1='as\:df';")
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'col2': 'item2', 'id': 1, 'col1':
                                      'item1\\:'},
                                     {'col2': '', 'id': 2, 'col1':
@@ -589,7 +607,7 @@ class DBTextTest(unittest.TestCase):
 
     # test update with null value
     query = ("update test set col2='' where id = 3;")
-    result = db_conn.Execute(query, writethru)
+    db_conn.Execute(query, writethru)
     self.assertEqual(db_conn.data, [{'col2': 'item2', 'id': 1, 'col1':
                                      'item1\\:'},
                                     {'col2': '', 'id': 2, 'col1':

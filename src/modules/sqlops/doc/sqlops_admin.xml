@@ -194,13 +194,51 @@ modparam("sqlops", "tr_buf_size", 4096)
 </programlisting>
 		</example>
 	</section>
+	<section id="sqlops.p.log_buf_size">
+		<title><varname>log_buf_size</varname> (int)</title>
+		<para>
+		The size of the buffer (characters) when logging raw SQL operations.
+		</para>
+		<para>
+		Note: When the buffer is smaller than the SQL operation, the operation is logged truncated up to log_buf_size.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 128.
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>log_buf_size</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("sqlops", "log_buf_size", 4096)
+...
+</programlisting>
+		</example>
+	</section>
 	<section id="sqlops.p.connect_mode">
 		<title><varname>connect_mode</varname> (int)</title>
 		<para>
-		Control if the module must stop loading when connecting to database
-		server fails during start up. Values: 0 - stop loading; 1 - continue
-		even if connecting to database server fails.
+		Control how the module will connect to database.
+		Values:
 		</para>
+	<itemizedlist>
+		<listitem>
+		<para>
+			<emphasis>0</emphasis> connect at start up or fail
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>1</emphasis> connect at start up but continue even if connecting to database server fails
+		</para>
+		</listitem>
+		<listitem>
+		<para>
+			<emphasis>2</emphasis> do not connect until needed (this will limit the amount of idle connections)
+		</para>
+		</listitem>
+	</itemizedlist>
 		<para>
 		<emphasis>
 			Default value is 0.
@@ -224,7 +262,7 @@ modparam("sqlops", "connect_mode", 1)
 		<para>
 		Note that a result container can be used for different SQL queries, it
 		is not required to have result container per SQL query. Use different
-		containers when the result records are needed at the same time (e.g.,
+		containers when the result records are needed at the same time (e.g.
 		compare a field from one result with a field from another result).
 		</para>
 		<para>
@@ -263,12 +301,29 @@ modparam("sqlops", "results_maxsize", 64)
 		<para>
 			<emphasis>2</emphasis> - query successful, no rows returned
 		</para>
+		</listitem>
+		<listitem>
 		<para>
 			<emphasis>3</emphasis> - query successful, at least one row
             returned, but result parameter was not given
 		</para>
 		</listitem>
 	</itemizedlist>
+		<note><title>db_text backend</title>
+		<para>
+			When using the db_text backend, it has some limitations. See the module documentation for more details.
+			<itemizedlist>
+				<listitem>
+					<para>
+						<emphasis>db_text</emphasis> backend support only <emphasis>where</emphasis> clause with <emphasis>AND|OR</emphasis> operators and <emphasis>=,&gt;,&lt;,&gt;=,&lt;=,&lt;&gt;</emphasis> operators. It does not support LIKE operator or other operators.
+					</para>
+				</listitem>
+			</itemizedlist>
+		</para>
+		<para>
+			Other sql backends forward the query as is to the appropriate engine.
+		</para>
+	</note>
 	<section>
 		<title>
 		<function moreinfo="none">sql_query(connection, query[, result])</function>
@@ -336,7 +391,7 @@ sql_result_free("ra");
 		<listitem>
 			<para>
 				<emphasis>result</emphasis> - string name to identify the
-				result xavp. Each row will be added to this xavp, each column can 
+				result xavp. Each row will be added to this xavp, each column can
 				be accessed by its name.
 			</para>
 		</listitem>
@@ -384,7 +439,7 @@ if (sql_xquery("ca", "select * from domain", "ra") == 1) {
 			<para>
 				<emphasis>result</emphasis> - a list with PV names where
 				to store the result. The format is
-				<quote>$pv;$pv;...</quote>. Every PV that is writable may 
+				<quote>$pv;$pv;...</quote>. Every PV that is writable may
 				be used (for example $var, $avp, $xavp, $ru, $du, $sht, etc).
 			</para>
 			<para>
@@ -396,7 +451,7 @@ if (sql_xquery("ca", "select * from domain", "ra") == 1) {
 			</para>
 			<para>
 				Beware that if multiple rows are returned, non-(x)avp variables
-				will only hold the last added value, which corresponds to the 
+				will only hold the last added value, which corresponds to the
 				first returned row.
 			</para>
 			<para>
@@ -454,9 +509,9 @@ sql_result_free("ra");
 		</title>
 		<para>
 			Make an async SQL query using 'connection', if implemented by db
-			driver module (e.g., db_mysql). The query is executed in another
+			driver module (e.g. db_mysql). The query is executed in another
 			process and result is not available back to config, thus it should
-			be used only for sql statements that don't return values (e.g.,
+			be used only for sql statements that don't return values (e.g.
 			insert, delete, update...). Note that async_workers core parameter
 			must be set in order to enable the asynchronous framework
 			needed by this function.
@@ -494,7 +549,7 @@ sql_query_async("ca", "delete from domain");
 
 	<section>
 	<title>Exported pseudo-variables</title>
-		
+
 		<section>
 			<title><varname>$dbr(result=>key)</varname></title>
 			<para>
@@ -512,11 +567,11 @@ sql_query_async("ca", "delete from domain");
 				<listitem>
 					<para><emphasis>rows</emphasis> - return the number of rows in
 						query result</para>
-				</listitem>	  
+				</listitem>
 				<listitem>
 					<para><emphasis>cols</emphasis> - return the number of
 						columns in the result.</para>
-				</listitem>	  
+				</listitem>
 				<listitem>
 					<para><emphasis>[row,col]</emphasis> - return the value
 					at position (row,col) in the result set. 'row' and 'col' must
@@ -525,7 +580,7 @@ sql_query_async("ca", "delete from domain");
 				<listitem>
 					<para><emphasis>colname[N]</emphasis> - return the name
 					of the N-th column in the result set.</para>
-				</listitem>	  
+				</listitem>
 			</itemizedlist>
 
 			<example>
@@ -586,7 +641,7 @@ if (sql_xquery("ca", "select * from domain", "ra") == 1)
 			<title><varname>$sqlrows(con)</varname></title>
 			<para>
 				Number of affected rows of the previous query on the
-				specified connection. It's primary use is to get the number
+				specified connection. Its primary use is to get the number
 				of rows affected by UPDATE, INSERT and DELETE queries.
 			</para>
 			<para>
@@ -607,4 +662,3 @@ xlog("Affected rows: $sqlrows(ca)\n");
 		</section>
 	</section>
 </chapter>
-

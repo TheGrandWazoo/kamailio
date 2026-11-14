@@ -11,9 +11,9 @@
 <!-- Module User's Guide -->
 
 <chapter>
-	
+
 	<title>&adminguide;</title>
-	
+
 	<section>
 	<title>Overview</title>
 	<para>
@@ -46,6 +46,7 @@
 			<listitem>
 			<para>
 				<emphasis>mysql</emphasis> - the development libraries for the MySQL database. In some Linux distributions named "libmysqlclient-dev".
+				<emphasis>MariaDB</emphasis> - the development libraries for the MariaDB database. In some Linux distributions named "libmariadbclient-dev".
 			</para>
 			</listitem>
 			</itemizedlist>
@@ -74,6 +75,86 @@ modparam("db_mysql", "ping_interval", 600)
 </programlisting>
 		</example>
 	</section>
+	<section id="db_mysql.p.connect_timeout">
+		<title><varname>connect_timeout</varname> (integer)</title>
+		<para>
+		Connection timeout in seconds for MySQL server connection attempts.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 2 (2 sec).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>connect_timeout</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("db_mysql", "connect_timeout", 5)
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="db_mysql.p.send_timeout">
+		<title><varname>send_timeout</varname> (integer)</title>
+		<para>
+		Send timeout in seconds for MySQL server operations. This option is only
+		enabled for MySQL client library versions >= 5.0.25 or >= 4.1.22.
+		If set to 0 and the client library supports it, the default value is 2 seconds.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 0 (0 - use default 2 sec if supported).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>send_timeout</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("db_mysql", "send_timeout", 5)
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="db_mysql.p.receive_timeout">
+		<title><varname>receive_timeout</varname> (integer)</title>
+		<para>
+		Receive timeout in seconds for MySQL server operations. This option is only
+		enabled for MySQL client library versions >= 5.0.25 or >= 4.1.22.
+		If set to 0 and the client library supports it, the default value is 4 seconds.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 0 (0 - use default 4 sec if supported).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>receive_timeout</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("db_mysql", "receive_timeout", 10)
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="db_mysql.p.retries">
+		<title><varname>retries</varname> (integer)</title>
+		<para>
+		Number of retries when a MySQL command fails.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 1 (1 retry).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>retries</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("db_mysql", "retries", 3)
+...
+</programlisting>
+		</example>
+	</section>
 	<section>
 		<title><varname>server_timezone</varname> (integer)</title>
 		<para>
@@ -98,7 +179,7 @@ modparam("db_mysql", "server_timezone", 1)
 		<section>
 		<title><varname>timeout_interval</varname> (integer)</title>
 		<para>
-		Time interval (in seconds) after that an connection attempt, read or write request
+		Time interval (in seconds) after that a connection attempt, read or write request
 		is aborted. The value counts three times, as several retries are done
 		from the driver before it gives up.
 		</para>
@@ -181,6 +262,26 @@ modparam("db_mysql", "update_affected_found", 1)
 </programlisting>
 		</example>
 	</section>
+	<section id="db_mysql.p.unsigned_type">
+		<title><varname>unsigned_type</varname> (integer)</title>
+		<para>
+		If set to 1, unsigned integer types from MySQL are mapped to
+		unsigned types in the internal DB API.
+		</para>
+		<para>
+		<emphasis>
+			Default value is 0 (0 - off).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>unsigned_type</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("db_mysql", "unsigned_type", 1)
+...
+</programlisting>
+		</example>
+	</section>
 	<section id="db_mysql.p.opt_ssl_mode">
 		<title><varname>opt_ssl_mode</varname> (integer)</title>
 		<para>
@@ -198,7 +299,10 @@ modparam("db_mysql", "update_affected_found", 1)
 		defined.
 		</para>
 		<para>
-		Note: this option is supported only by libmysqlclient, not by libmariadbclient.
+                MariaDB client configuration uses the following values: 0, 1 use plain, 2/3/4 for MYSQL_OPT_SSL_ENFORCE,
+                5 for MYSQL_OPT_SSL_VERIFY_SERVER_CERT (see MariaDB Connector/C documentation)
+
+                Other values are ignored.
 		</para>
 		<para>
 		<emphasis>
@@ -210,6 +314,30 @@ modparam("db_mysql", "update_affected_found", 1)
 		<programlisting format="linespecific">
 ...
 modparam("db_mysql", "opt_ssl_mode", 1)
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="db_mysql.p.opt_ssl_ca">
+		<title><varname>opt_ssl_ca</varname> (string)</title>
+		<para>
+		Configures the CA certs used to verify the MySQL server cert when
+		SSL is enabled.
+		</para>
+		<para>
+		Required when opt_ssl_mode = 4 or 5 and db_mysql is built
+		with libmysqlclient.
+		</para>
+		<para>
+		<emphasis>
+			Default value is NULL (NULL - not configured).
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>opt_ssl_ca</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("db_mysql", "opt_ssl_ca", "/etc/ssl/certs/mysql-ca.pem")
 ...
 </programlisting>
 		</example>
@@ -243,7 +371,7 @@ modparam("db_mysql", "opt_ssl_mode", 1)
 			</listitem>
 		</itemizedlist>
 	</section>
-	<section>
+	<section id="db_mysql.r.my_cnf">
 		<title>Reading configuration from my.cnf</title>
 		<para>
 		In order to take into account specific mysql client options, a my.cnf config group can be passed using the <emphasis>db_url</emphasis> module parameter. This is done by setting <emphasis>[group]</emphasis> in front of or instead of the host part. The following examples are valid <emphasis>db_url</emphasis> definitions, which include a my.cnf group:
@@ -298,4 +426,3 @@ default-character-set = utf8
 		</para>
 	</section>
 </chapter>
-

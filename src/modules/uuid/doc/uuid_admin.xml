@@ -10,9 +10,9 @@
 <!-- Module User's Guide -->
 
 <chapter>
-	
+
 	<title>&adminguide;</title>
-	
+
 	<section>
 	<title>Overview</title>
 	<para>
@@ -85,6 +85,16 @@
 				the variable returns $null. The function is not available
 				on Mac OS X - the value is the one returned by
 				uuid_generate_time().
+			</para>
+			</listitem>
+			<listitem>
+			<para>
+				<emphasis>$uuid(7)</emphasis> - return a UUID version 7 value
+				(RFC 9562).
+				The value is generated with uuid_generate_time_v7(), which
+				requires libuuid from util-linux 2.41 or newer. If the module
+				was built against an older libuuid, the variable returns
+				$null and an error is logged.
 			</para>
 			</listitem>
 			</itemizedlist>

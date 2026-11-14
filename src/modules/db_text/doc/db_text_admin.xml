@@ -52,8 +52,8 @@
 				<para>
 				NOTE: when you use <emphasis>dbtext</emphasis> in &kamailio;,
 				the database URL for modules must be the path to the directory
-				where the table-files are located, prefixed by 
-				<quote>text://</quote>, e.g., 
+				where the table-files are located, prefixed by
+				<quote>text://</quote>, e.g.,
 				<quote>text:///var/dbtext/ser</quote>. If there is no
 				<quote>/</quote> after <quote>text://</quote> then
 				<quote>CFG_DIR/</quote> is inserted at the beginning of the
@@ -87,19 +87,19 @@
 			</listitem>
 			<listitem>
 				<para>
-				the format of a column definition is: 
+				the format of a column definition is:
 				<emphasis>name(type,attr)</emphasis>.
 				</para>
 			</listitem>
 			<listitem>
 				<para>
-				between two column definitions must be a white space, e.g., 
+				between two column definitions must be a white space, e.g.,
 				<quote>first_name(str) last_name(str)</quote>.
 				</para>
 			</listitem>
 			<listitem>
 				<para>
-				the type of a column can be: 
+				the type of a column can be:
 					<itemizedlist>
 					<listitem>
 					<para>
@@ -122,7 +122,7 @@
 			</listitem>
 			<listitem>
 				<para>
-				a column can have one of the attributes: 
+				a column can have one of the attributes:
 					<itemizedlist>
 					<listitem>
 					<para>
@@ -211,9 +211,51 @@ suser:supasswd:xxx:alpha.org:xxx
 	<title>Known limitations</title>
 		<para>This database interface does not support data insertion with
 			default values. All such values specified in the database template
-			are ignored. So its advisable to specify all data for a column at
+			are ignored. So it is advisable to specify all data for a column at
 			insertion operations.
 		</para>
+		<note><title>Query Information using sqlops module</title>
+		<para>
+			When a function accepts a raw query string and the input may include a
+			<quote>where</quote> clause, the values of each key can be
+			either an int or a double quoted string.
+
+			For string comparisons, use double quotes around the
+			literal value always. Numeric values should be written
+			without quotes.
+
+			You can use either a single-quoted query string or a double-quoted query string but for double-quoted strings you need to escape the double quotes for each value inside the string with a backslash. For example:
+		</para>
+		<example>
+		<programlisting format="linespecific">
+modparam("db_text", "db_url", "text:///var/dbtext/ser")
+
+route {
+	# Single quoted query string with double quoted values
+    if (sql_xquery("ca", 'select * from domain where l_uuid = "abc123"', "ra") == 1) {
+        xlog("L_INFO", "domain: $xavp(ra=>domain)\n");
+    }
+}
+		</programlisting>
+		</example>
+		<example>
+		<programlisting format="linespecific">
+modparam("db_text", "db_url", "text:///var/dbtext/ser")
+
+route {
+	# Double quoted query string with escaped double quotes for values
+    if (sql_xquery("ca", "select * from domain where l_uuid = \"abc123\"", "ra") == 1) {
+        xlog("L_INFO", "domain: $xavp(ra=>domain)\n");
+    }
+}
+		</programlisting>
+		</example>
+		<para>
+			Single-quoted literals for values, for example <emphasis>l_uuid ='abc123'</emphasis>, are not accepted by the parser used
+			for these queries and should be avoided.
+		</para>
+	</note>
+
 	</section>
 	<section>
 	<title>Dependencies</title>
@@ -251,7 +293,7 @@ suser:supasswd:xxx:alpha.org:xxx
 			<title><varname>db_mode</varname> (integer)</title>
 			<para>
 			Set caching mode (0) or non-caching mode (1). In caching mode, data
-			is loaded at startup. In non-caching mode, the module check every time
+			is loaded at startup. In non-caching mode, the module checks every time
 			a table is requested whether the corresponding file on disk has
 			changed, and if yes, will re-load the table from file.
 			</para>
@@ -295,7 +337,7 @@ modparam("db_text", "db_delim", "|")
             <para>
                 connection for use with rpc query command.
             </para>
-            
+
             <para>
                 <emphasis>
                     Default value is <quote>none</quote> (off).
@@ -386,7 +428,7 @@ modparam("db_text", "max_result_rows", 1000000)
 		<para>Parameters: <emphasis>none</emphasis></para>
 		<para>RPC Command Format:</para>
 		<programlisting  format="linespecific">
-	kamcmd db_text.dump
+            kamctl rpc db_text.dump
 		</programlisting>
 	</section>
     <section>
@@ -398,7 +440,7 @@ modparam("db_text", "max_result_rows", 1000000)
         <para>Parameters: <emphasis>sqlcmd</emphasis></para>
         <para>RPC Command Format:</para>
         <programlisting  format="linespecific">
-            kamcmd db_text.query 'select * from location where username="xxx"'
+            kamctl rpc db_text.query 'select * from location where username="xxx"'
         </programlisting>
     </section>
 	</section>
@@ -411,11 +453,11 @@ modparam("db_text", "max_result_rows", 1000000)
 		REMINDER: when you use <emphasis>text</emphasis> in &kamailio;,
 		the	database URL for modules must be the path to the directory
 		where the table-files are located, prefixed by
-		<quote>text://</quote>, e.g., 
+		<quote>text://</quote>, e.g.,
 		<quote>text:///var/dbtext/ser</quote>. If there is no <quote>/</quote>
 		after <quote>text://</quote> then <quote>CFG_DIR/</quote> is inserted
 		at the beginning of the database path. So, either you provide an
-		absolute path to database directory or a relative one to 
+		absolute path to database directory or a relative one to
 		<quote>CFG_DIR</quote> directory.
 		</para>
 		<example>
@@ -431,14 +473,14 @@ modparam("module_name", "db_url", "text:///path/to/dbtext/database")
 		<section>
 			<title>Using db_text with a basic &kamailio; configuration</title>
 		<para>
-		Here are definitions for the most important tables as well as a basic 
+		Here are definitions for the most important tables as well as a basic
 		configuration file to use db_text with &kamailio;. The table structures
 		may change in time and you will have to adjust these examples. Check the
 		source code directory <quote>utils/kamctl/dbtext/kamailio</quote> for
 		current definitions.
 		</para>
 		<para>
-		You have to populate the table 'subscriber' by hand with user profiles 
+		You have to populate the table 'subscriber' by hand with user profiles
 		in order to have authentication. To use with the given configuration
 		file, the table files must be placed in the '/tmp/serdb' directory.
 		</para>
@@ -454,7 +496,7 @@ username(str) domain(str) password(str) first_name(str) last_name(str) phone(str
 		<title>Definition of 'location' and 'aliases' tables (one line)</title>
 <programlisting format="linespecific">
 ...
-username(str) domain(str,null) contact(str,null) received(str) expires(int,null) q(double,null) callid(str,null) cseq(int,null) last_modified(str) flags(int) user_agent(str) socket(str) 
+username(str) domain(str,null) contact(str,null) received(str) expires(int,null) q(double,null) callid(str,null) cseq(int,null) last_modified(str) flags(int) user_agent(str) socket(str)
 ...
 </programlisting>
 		</example>
@@ -480,4 +522,3 @@ aliases:6
 		</section>
 	</section>
 </chapter>
-

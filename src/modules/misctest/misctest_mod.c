@@ -23,8 +23,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <pthread.h>
+
 #include "../../core/sr_module.h"
 #include "../../core/mem/mem.h"
+#include "../../core/mem/shm.h"
 #include "../../core/str.h"
 #include "../../core/dprint.h"
 #include "../../core/locking.h"
@@ -34,12 +37,14 @@
 #include "../../core/rand/fastrand.h"
 #include "../../core/timer.h"
 #include "../../core/mod_fix.h"
+#include "../../core/tcp_mtops.h"
 
 #include "../../core/parser/sdp/sdp.h"
 #include "../../core/parser/parse_uri.c"
 #include "../../core/parser/parse_hname2.h"
 #include "../../core/parser/contact/parse_contact.h"
 #include "../../core/parser/parse_to.h"
+#include "../../core/parser/parse_rr.h"
 #include "../../core/parser/parse_from.h"
 #include "../../core/parser/parse_refer_to.h"
 #include "../../core/parser/parse_ppi_pai.h"
@@ -52,6 +57,10 @@ MODULE_VERSION
 
 static int mt_mem_alloc_f(struct sip_msg *, char *, char *);
 static int mt_mem_free_f(struct sip_msg *, char *, char *);
+static int mt_tcp_thread_exec_f(sip_msg_t *, char *, char *);
+static int mt_lock_test_f(struct sip_msg *, char *, char *);
+static int mt_lock_threads_f(sip_msg_t *, char *, char *);
+static int mt_unlock_threads_f(sip_msg_t *, char *, char *);
 static int mod_init(void);
 static void mod_destroy(void);
 
@@ -64,12 +73,19 @@ static int misctest_message = 0;
 static str misctest_message_data = STR_NULL;
 static str misctest_message_file = STR_NULL;
 
+static int misctest_lock_threads_mode = 0;
+gen_lock_t *_misctest_lock_threads = NULL;
+
 /* clang-format off */
 static cmd_export_t cmds[]={
-	{"mt_mem_alloc", mt_mem_alloc_f, 1, fixup_var_int_1, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|ONSEND_ROUTE},
-	{"mt_mem_free", mt_mem_free_f, 1, fixup_var_int_1, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|ONSEND_ROUTE},
+	{"mt_mem_alloc", mt_mem_alloc_f, 1, fixup_var_int_1, 0, ANY_ROUTE},
+	{"mt_mem_free", mt_mem_free_f, 1, fixup_var_int_1, 0, ANY_ROUTE},
+	{"mt_tcp_thread_exec", mt_tcp_thread_exec_f, 1, fixup_spve_null, 0, ANY_ROUTE},
+	{"mt_lock_test", mt_lock_test_f, 1, fixup_var_int_1, 0, ANY_ROUTE},
+	{"mt_lock_threads", mt_lock_threads_f, 1, fixup_igp_null,
+		fixup_free_igp_null, ANY_ROUTE},
+	{"mt_unlock_threads", mt_unlock_threads_f, 1, fixup_igp_null,
+		fixup_free_igp_null, ANY_ROUTE},
 	{0, 0, 0, 0, 0}
 };
 /* clang-format on */
@@ -118,6 +134,7 @@ static param_export_t params[]={
 	{"message_data", PARAM_STR, &misctest_message_data},
 	{"message_file", PARAM_STR, &misctest_message_file},
 	{"mem_check_content", PARAM_INT, &default_mt_cfg.mem_check_content},
+	{"lock_threads_mode", PARAM_INT, &misctest_lock_threads_mode},
 	{0,0,0}
 };
 /* clang-format on */
@@ -138,6 +155,69 @@ struct module_exports exports = {
 };
 /* clang-format on */
 
+
+static void mt_tcp_thread_exec_cb(void *p, int pidx)
+{
+	str *ps = NULL;
+	tcpx_task_result_t *rtask = NULL;
+
+	ps = (str *)p;
+
+	LM_INFO("process no: %d - pidx: %d - tid: %lu - data: %.*s\n", process_no,
+			pidx, (unsigned long)pthread_self(), ps->len, ps->s);
+	rtask = (tcpx_task_result_t *)shm_mallocxz(sizeof(tcpx_task_result_t));
+	if(rtask == NULL) {
+		SHM_MEM_ERROR;
+		ksr_tcpx_thread_eresult(rtask, pidx);
+		return;
+	}
+	rtask->code = 1;
+	ksr_tcpx_thread_eresult(rtask, pidx);
+	return;
+}
+
+static int mt_tcp_thread_exec_f(sip_msg_t *msg, char *ptext, char *p2)
+{
+	str text = STR_NULL;
+	int dsize = 0;
+	tcpx_task_t *ptask = NULL;
+	tcpx_task_result_t *rtask = NULL;
+	str *ps = NULL;
+
+	if(fixup_get_svalue(msg, (gparam_t *)ptext, &text) < 0) {
+		LM_ERR("invalid parameter\n");
+		return -1;
+	}
+
+	dsize = sizeof(tcpx_task_t) + sizeof(str) + text.len + 1;
+	ptask = (tcpx_task_t *)shm_mallocxz(dsize);
+	if(ptask == NULL) {
+		SHM_MEM_ERROR;
+		return -1;
+	}
+	ptask->exec = mt_tcp_thread_exec_cb;
+	ps = (str *)((char *)ptask + sizeof(tcpx_task_t));
+	ps->s = (char *)ps + sizeof(str);
+	memcpy(ps->s, text.s, text.len);
+	ps->len = text.len;
+	ptask->param = ps;
+
+	LM_INFO("process no: %d - data: %.*s\n", process_no, text.len, text.s);
+
+	ksr_tcpx_task_send(ptask, process_no);
+
+	ksr_tcpx_task_result_recv(&rtask, process_no);
+
+	if(rtask == NULL) {
+		LM_ERR("failed to get the result\n");
+		return -1;
+	}
+
+	LM_INFO("received result code: %d\n", rtask->code);
+	shm_free(rtask);
+
+	return 1;
+}
 
 #define MC_F_CHECK_CONTENTS 1
 
@@ -202,17 +282,26 @@ static int mod_init(void)
 		goto error;
 	}
 
-	if(misctest_memory!=0) {
-		if(misctest_memory_init()<0) {
+	if(misctest_memory != 0) {
+		if(misctest_memory_init() < 0) {
 			goto error;
 		}
 	}
 
-	if(misctest_message!=0) {
-		if(misctest_message_init()<0) {
+	if(misctest_message != 0) {
+		if(misctest_message_init() < 0) {
 			goto error;
 		}
 		return -1;
+	}
+
+	if(misctest_lock_threads_mode != 0) {
+		_misctest_lock_threads = lock_alloc();
+		if(_misctest_lock_threads == NULL) {
+			LM_ERR("failed to alloc lock\n");
+			goto error;
+		}
+		lock_init(_misctest_lock_threads);
 	}
 
 	return 0;
@@ -223,7 +312,7 @@ error:
 
 static void mod_destroy()
 {
-	if(misctest_memory!=0) {
+	if(misctest_memory != 0) {
 		if(rndt_lst) {
 			mem_destroy_all_tests();
 			lock_destroy(&rndt_lst->lock);
@@ -242,16 +331,21 @@ static void mod_destroy()
 static int misctest_memory_init(void)
 {
 	alloc_lst = shm_malloc(sizeof(*alloc_lst));
-	if(alloc_lst == 0)
+	if(alloc_lst == 0) {
+		SHM_MEM_ERROR;
 		goto error;
+	}
+
 	alloc_lst->chunks = 0;
 	atomic_set_long(&alloc_lst->size, 0);
 	atomic_set_int(&alloc_lst->no, 0);
 	if(lock_init(&alloc_lst->lock) == 0)
 		goto error;
 	rndt_lst = shm_malloc(sizeof(*rndt_lst));
-	if(rndt_lst == 0)
+	if(rndt_lst == 0) {
+		SHM_MEM_ERROR;
 		goto error;
+	}
 	rndt_lst->tests = 0;
 	atomic_set_int(&rndt_lst->last_id, 0);
 	if(lock_init(&rndt_lst->lock) == 0)
@@ -264,31 +358,31 @@ error:
 
 static int misctest_message_init(void)
 {
-	char tbuf[BUF_SIZE];
+	char tbuf[4 * BUF_SIZE + 1];
 	FILE *f;
 	long fsize;
-	sip_msg_t tmsg = { };
+	sip_msg_t tmsg = {};
 
-	if(misctest_message_data.s!=0 && misctest_message_data.len>0) {
-		if(misctest_message_data.len>=BUF_SIZE-2) {
+	if(misctest_message_data.s != 0 && misctest_message_data.len > 0) {
+		if(misctest_message_data.len >= 4 * BUF_SIZE - 2) {
 			LM_ERR("the data is too big\n");
 			return -1;
 		}
 		memcpy(tbuf, misctest_message_data.s, misctest_message_data.len);
 		tbuf[misctest_message_data.len] = '\0';
 		tmsg.len = misctest_message_data.len;
-	} else if(misctest_message_file.s!=0 && misctest_message_file.len>0) {
+	} else if(misctest_message_file.s != 0 && misctest_message_file.len > 0) {
 		LM_DBG("reading data from file: %.*s\n", misctest_message_file.len,
 				misctest_message_file.s);
 		f = fopen(misctest_message_file.s, "r");
-		if(f==NULL) {
+		if(f == NULL) {
 			LM_ERR("cannot open file: %.*s\n", misctest_message_file.len,
 					misctest_message_file.s);
 			return -1;
 		}
 		fseek(f, 0, SEEK_END);
 		fsize = ftell(f);
-		if(fsize<0) {
+		if(fsize < 0) {
 			LM_ERR("ftell failed on file: %.*s\n", misctest_message_file.len,
 					misctest_message_file.s);
 			fclose(f);
@@ -296,16 +390,15 @@ static int misctest_message_init(void)
 		}
 		fseek(f, 0, SEEK_SET);
 
-		if(fsize>=BUF_SIZE-2) {
+		if(fsize >= 4 * BUF_SIZE - 2) {
 			LM_ERR("the file data is too big\n");
 			fclose(f);
 			return -1;
-
 		}
 		if(fread(tbuf, fsize, 1, f) != fsize) {
 			if(ferror(f)) {
 				LM_ERR("error reading from file: %.*s\n",
-					misctest_message_file.len, misctest_message_file.s);
+						misctest_message_file.len, misctest_message_file.s);
 			}
 		}
 		fclose(f);
@@ -325,7 +418,7 @@ static int misctest_message_init(void)
 
 	misctest_hexprint(tmsg.buf, tmsg.len, 20, 10);
 
-	if (parse_msg(tmsg.buf, tmsg.len, &tmsg) < 0) {
+	if(parse_msg(tmsg.buf, tmsg.len, &tmsg) < 0) {
 		goto cleanup;
 	}
 
@@ -341,7 +434,7 @@ static int misctest_message_init(void)
 
 	parse_to_uri(&tmsg);
 
-	parse_contact_header(&tmsg);
+	parse_contact_headers(&tmsg);
 
 	parse_refer_to_header(&tmsg);
 
@@ -354,6 +447,10 @@ static int misctest_message_init(void)
 	parse_content_disposition(&tmsg);
 
 	parse_identityinfo_header(&tmsg);
+
+	parse_record_route_headers(&tmsg);
+
+	parse_route_headers(&tmsg);
 
 	str uri;
 	get_src_uri(&tmsg, 0, &uri);
@@ -391,23 +488,23 @@ int misctest_hexprint(void *data, size_t length, int linelen, int split)
 		return -1;
 	}
 
-	while (remaining > 0) {
+	while(remaining > 0) {
 		int lrem;
 		int splitcount;
 		ptr = buffer;
 
 		lrem = remaining;
 		splitcount = 0;
-		for (pos = 0; pos < linelen; pos++) {
+		for(pos = 0; pos < linelen; pos++) {
 
-			if (split == splitcount++) {
+			if(split == splitcount++) {
 				sprintf(ptr, "  ");
 				ptr += 2;
 				splitcount = 1;
 			}
 
-			if (lrem) {
-				sprintf(ptr, "%02x ", *((unsigned char *) inptr + pos));
+			if(lrem) {
+				sprintf(ptr, "%02x ", *((unsigned char *)inptr + pos));
 				lrem--;
 			} else {
 				sprintf(ptr, "   ");
@@ -420,18 +517,18 @@ int misctest_hexprint(void *data, size_t length, int linelen, int split)
 
 		lrem = remaining;
 		splitcount = 0;
-		for (pos = 0; pos < linelen; pos++) {
+		for(pos = 0; pos < linelen; pos++) {
 			unsigned char c;
 
-			if (split == splitcount++) {
+			if(split == splitcount++) {
 				sprintf(ptr, "  ");
 				ptr += 2;
 				splitcount = 1;
 			}
 
-			if (lrem) {
-				c = *((unsigned char *) inptr + pos);
-				if (c > 31 && c < 127) {
+			if(lrem) {
+				c = *((unsigned char *)inptr + pos);
+				if(c > 31 && c < 127) {
 					sprintf(ptr, "%c", c);
 				} else {
 					sprintf(ptr, ".");
@@ -463,8 +560,10 @@ static int mem_track(void *addr, unsigned long size)
 	unsigned long r, i;
 
 	mc = shm_malloc(sizeof(*mc));
-	if(mc == 0)
+	if(mc == 0) {
+		SHM_MEM_ERROR;
 		goto error;
+	}
 	mc->addr = addr;
 	mc->size = size;
 	mc->flags = 0;
@@ -670,7 +769,7 @@ static int mem_rnd_realloc(unsigned long size, long *diff)
 
 /*
  * Randomly alloc. total_size bytes, in chunks of size between
- * min & max. max - min should be smaller then 4G.
+ * min & max. max - min should be smaller than 4G.
  * @return < 0 if there were some alloc errors, 0 on success.
  */
 static int mem_rnd_leak(
@@ -776,8 +875,10 @@ static int mem_leak_time_test(unsigned long min, unsigned long max,
 	int id;
 
 	tst = shm_malloc(sizeof(*tst));
-	if(tst == 0)
+	if(tst == 0) {
+		SHM_MEM_ERROR;
 		goto error;
+	}
 	memset(tst, 0, sizeof(*tst));
 	id = tst->id = atomic_add_int(&rndt_lst->last_id, 1);
 	tst->min = min;
@@ -885,6 +986,26 @@ static int mem_test_destroy(int id)
 	return -(tst == 0);
 }
 
+
+static int lock_test(int executions)
+{
+	int i = 0;
+	gen_lock_t *my_lock = NULL;
+	my_lock = lock_alloc();
+
+	if(my_lock == NULL) {
+		LM_ERR("Error creating lock\n");
+		return -1;
+	}
+	LM_INFO("Start lock test, %d executions\n", executions);
+	for(i = 0; i < executions; i++) {
+		lock_get(my_lock);
+		lock_release(my_lock);
+	}
+	LM_INFO("Finished lock test\n");
+	return 0;
+}
+
 /* script functions: */
 
 
@@ -910,6 +1031,83 @@ static int mt_mem_free_f(struct sip_msg *msg, char *sz, char *foo)
 	return (freed == 0) ? 1 : freed;
 }
 
+
+static int mt_lock_test_f(struct sip_msg *msg, char *sz, char *foo)
+{
+	int size;
+
+	if(sz == 0 || get_int_fparam(&size, msg, (fparam_t *)sz) < 0)
+		return -1;
+	return lock_test(size) >= 0 ? 1 : -1;
+}
+
+static void *mt_lock_threads_exec(void *param)
+{
+	int pidx = 0;
+
+	pidx = (int)(long)param;
+
+	while(1) {
+		LM_INFO("==== before acquiring the lock (idx: %d)\n", pidx);
+		lock_get(_misctest_lock_threads);
+		LM_INFO("==== after acquiring the lock (idx: %d)\n", pidx);
+	}
+	return NULL;
+}
+
+static int mt_lock_threads_f(sip_msg_t *msg, char *pn, char *p2)
+{
+	int i;
+	int n;
+	pthread_t tid;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pn, &n) < 0) {
+		LM_ERR("invalid parameter\n");
+		return -1;
+	}
+
+	if(_misctest_lock_threads == NULL) {
+		LM_ERR("the lock is not initialized\n");
+		goto error;
+	}
+
+	for(i = 0; i < n; i++) {
+		if(pthread_create(&tid, NULL, mt_lock_threads_exec, (void *)(long)i)) {
+			LM_ERR("failed to start all worker threads\n");
+			goto error;
+		}
+	}
+
+	return 1;
+
+error:
+	return -1;
+}
+
+static int mt_unlock_threads_f(sip_msg_t *msg, char *pn, char *p2)
+{
+	int i;
+	int n;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pn, &n) < 0) {
+		LM_ERR("invalid parameter\n");
+		return -1;
+	}
+
+	if(_misctest_lock_threads == NULL) {
+		LM_ERR("the lock is not initialized\n");
+		goto error;
+	}
+
+	for(i = 0; i < n; i++) {
+		lock_release(_misctest_lock_threads);
+	}
+
+	return 1;
+
+error:
+	return -1;
+}
 
 /* RPC exports: */
 
@@ -1007,7 +1205,7 @@ static const char *rpc_mt_free_doc[2] = {
 		" other misctest functions (e.g. mt.mem_alloc or the script "
 		"mt_mem_alloc). Use b|k|m|g to specify the desired size unit."
 		"Returns the number of bytes freed (can be higher or"
-		" smaller then the requested size)",
+		" smaller than the requested size)",
 		0};
 
 
@@ -1239,6 +1437,22 @@ static void rpc_mt_test_list(rpc_t *rpc, void *c)
 }
 
 
+static const char *rpc_mt_lock_test_doc[2] = {
+		"Test a number of locking operations", 0};
+
+static void rpc_mt_lock_test(rpc_t *rpc, void *c)
+{
+	int executions = 0;
+	int n_args = rpc->scan(c, "d", &executions);
+	if(n_args == 1 && executions < 1) {
+		rpc->fault(c, 400, "Argument must be a positive integer");
+		return;
+	}
+	lock_test(executions);
+	return;
+}
+
+
 /* clang-format off */
 static rpc_export_t mt_rpc[] = {
 	{"mt.mem_alloc", rpc_mt_alloc, rpc_mt_alloc_doc, 0},
@@ -1252,6 +1466,7 @@ static rpc_export_t mt_rpc[] = {
 	{"mt.mem_test_destroy_all", rpc_mt_test_destroy_all,
 								rpc_mt_test_destroy_all_doc, 0},
 	{"mt.mem_test_list", rpc_mt_test_list, rpc_mt_test_list_doc, 0},
+	{"mt.lock_test", rpc_mt_lock_test, rpc_mt_lock_test_doc, 0},
 	{0, 0, 0, 0}
 };
 /* clang-format on */

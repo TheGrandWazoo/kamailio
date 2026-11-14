@@ -28,6 +28,8 @@
 
 
 #include "../../core/crypto/md5.h"
+#include "../../core/crypto/sha256.h"
+#include "../../core/dprint.h"
 
 #include "auth_alg.h"
 
@@ -37,11 +39,9 @@ static inline void cvt_hex(HASH bin, HASHHEX hex)
 	unsigned short i;
 	unsigned char j;
 
-	for (i = 0; i<HASHLEN; i++)
-	{
+	for(i = 0; i < HASHLEN; i++) {
 		j = (bin[i] >> 4) & 0xf;
-		if (j <= 9)
-		{
+		if(j <= 9) {
 			hex[i * 2] = (j + '0');
 		} else {
 			hex[i * 2] = (j + 'a' - 10);
@@ -49,8 +49,7 @@ static inline void cvt_hex(HASH bin, HASHHEX hex)
 
 		j = bin[i] & 0xf;
 
-		if (j <= 9)
-		{
+		if(j <= 9) {
 			hex[i * 2 + 1] = (j + '0');
 		} else {
 			hex[i * 2 + 1] = (j + 'a' - 10);
@@ -61,25 +60,70 @@ static inline void cvt_hex(HASH bin, HASHHEX hex)
 }
 
 
+static inline void cvt_hex_sha256(unsigned char bin[HASHLEN_SHA256], char *hex)
+{
+	unsigned short i;
+	unsigned char j;
+
+	for(i = 0; i < HASHLEN_SHA256; i++) {
+		j = (bin[i] >> 4) & 0xf;
+		hex[i * 2] = (j <= 9) ? (j + '0') : (j + 'a' - 10);
+
+		j = bin[i] & 0xf;
+		hex[i * 2 + 1] = (j <= 9) ? (j + '0') : (j + 'a' - 10);
+	}
+
+	hex[HASHHEXLEN_SHA256] = '\0';
+}
+
+
 static inline void cvt_bin(HASHHEX hex, HASH bin)
 {
 	unsigned short i;
 	unsigned char j;
-	for (i = 0; i<HASHLEN; i++) {
-		if(hex[2*i]>='0' && hex[2*i]<='9')
-			j = (hex[2*i]-'0') << 4;
-		else if(hex[2*i]>='a'&&hex[2*i]<='f')
-			j = (hex[2*i]-'a'+10) << 4;
-		else if(hex[2*i]>='A'&&hex[2*i]<='F')
-			j = (hex[2*i]-'A'+10) << 4;
-		else j = 0;
+	for(i = 0; i < HASHLEN; i++) {
+		if(hex[2 * i] >= '0' && hex[2 * i] <= '9')
+			j = (hex[2 * i] - '0') << 4;
+		else if(hex[2 * i] >= 'a' && hex[2 * i] <= 'f')
+			j = (hex[2 * i] - 'a' + 10) << 4;
+		else if(hex[2 * i] >= 'A' && hex[2 * i] <= 'F')
+			j = (hex[2 * i] - 'A' + 10) << 4;
+		else
+			j = 0;
 
-		if(hex[2*i+1]>='0'&&hex[2*i+1]<='9')
-			j += hex[2*i+1]-'0';
-		else if(hex[2*i+1]>='a'&&hex[2*i+1]<='f')
-			j += hex[2*i+1]-'a'+10;
-		else if(hex[2*i+1]>='A'&&hex[2*i+1]<='F')
-			j += hex[2*i+1]-'A'+10;
+		if(hex[2 * i + 1] >= '0' && hex[2 * i + 1] <= '9')
+			j += hex[2 * i + 1] - '0';
+		else if(hex[2 * i + 1] >= 'a' && hex[2 * i + 1] <= 'f')
+			j += hex[2 * i + 1] - 'a' + 10;
+		else if(hex[2 * i + 1] >= 'A' && hex[2 * i + 1] <= 'F')
+			j += hex[2 * i + 1] - 'A' + 10;
+
+		bin[i] = j;
+	}
+}
+
+
+static inline void cvt_bin_sha256(char *hex, unsigned char bin[HASHLEN_SHA256])
+{
+	unsigned short i;
+	unsigned char j;
+
+	for(i = 0; i < HASHLEN_SHA256; i++) {
+		if(hex[2 * i] >= '0' && hex[2 * i] <= '9')
+			j = (hex[2 * i] - '0') << 4;
+		else if(hex[2 * i] >= 'a' && hex[2 * i] <= 'f')
+			j = (hex[2 * i] - 'a' + 10) << 4;
+		else if(hex[2 * i] >= 'A' && hex[2 * i] <= 'F')
+			j = (hex[2 * i] - 'A' + 10) << 4;
+		else
+			j = 0;
+
+		if(hex[2 * i + 1] >= '0' && hex[2 * i + 1] <= '9')
+			j += hex[2 * i + 1] - '0';
+		else if(hex[2 * i + 1] >= 'a' && hex[2 * i + 1] <= 'f')
+			j += hex[2 * i + 1] - 'a' + 10;
+		else if(hex[2 * i + 1] >= 'A' && hex[2 * i + 1] <= 'F')
+			j += hex[2 * i + 1] - 'A' + 10;
 
 		bin[i] = j;
 	}
@@ -88,18 +132,49 @@ static inline void cvt_bin(HASHHEX hex, HASH bin)
 /*
  * calculate H(A1)
  */
-void uac_calc_HA1( struct uac_credential *crd,
-		struct authenticate_body *auth,
-		str* cnonce,
-		HASHHEX sess_key)
+void uac_calc_HA1(struct uac_credential *crd, struct authenticate_body *auth,
+		str *cnonce, HASHHEX sess_key)
 {
 	MD5_CTX Md5Ctx;
 	HASH HA1;
+	SHA256_CTX Sha256Ctx;
+	unsigned char HA1Sha256[HASHLEN_SHA256];
+
+	if(auth->flags & AUTHENTICATE_SHA256) {
+		if(crd->aflags & UAC_FLCRED_HA1) {
+			if(crd->passwd.len < HASHHEXLEN_SHA256) {
+				LM_ERR("invalid SHA-256 HA1 length %d\n", crd->passwd.len);
+				sess_key[0] = '\0';
+				return;
+			}
+			memcpy(sess_key, crd->passwd.s, HASHHEXLEN_SHA256);
+			sess_key[HASHHEXLEN_SHA256] = '\0';
+			cvt_bin_sha256(sess_key, HA1Sha256);
+		} else {
+			sr_SHA256_Init(&Sha256Ctx);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)crd->user.s, crd->user.len);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+			sr_SHA256_Update(
+					&Sha256Ctx, (uint8_t *)crd->realm.s, crd->realm.len);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+			sr_SHA256_Update(
+					&Sha256Ctx, (uint8_t *)crd->passwd.s, crd->passwd.len);
+			sr_SHA256_Final(HA1Sha256, &Sha256Ctx);
+		}
+
+		cvt_hex_sha256(HA1Sha256, sess_key);
+		return;
+	}
 
 	if(crd->aflags & UAC_FLCRED_HA1) {
+		if(crd->passwd.len < HASHHEXLEN) {
+			LM_ERR("invalid MD5 HA1 length %d\n", crd->passwd.len);
+			sess_key[0] = '\0';
+			return;
+		}
 		memcpy(sess_key, crd->passwd.s, HASHHEXLEN);
 		sess_key[HASHHEXLEN] = '\0';
-		if ( auth->flags& AUTHENTICATE_MD5SESS ) {
+		if(auth->flags & AUTHENTICATE_MD5SESS) {
 			cvt_bin(sess_key, HA1);
 		} else {
 			return;
@@ -114,7 +189,7 @@ void uac_calc_HA1( struct uac_credential *crd,
 		MD5Final(HA1, &Md5Ctx);
 	}
 
-	if ( auth->flags& AUTHENTICATE_MD5SESS ) {
+	if(auth->flags & AUTHENTICATE_MD5SESS) {
 		MD5Init(&Md5Ctx);
 		MD5Update(&Md5Ctx, HA1, HASHLEN);
 		MD5Update(&Md5Ctx, ":", 1);
@@ -128,25 +203,39 @@ void uac_calc_HA1( struct uac_credential *crd,
 }
 
 
-
-/* 
+/*
  * calculate H(A2)
  */
-void uac_calc_HA2( str *method, str *uri,
-		struct authenticate_body *auth,
-		HASHHEX hentity,
-		HASHHEX HA2Hex )
+void uac_calc_HA2(str *method, str *uri, struct authenticate_body *auth,
+		HASHHEX hentity, HASHHEX HA2Hex)
 {
 	MD5_CTX Md5Ctx;
 	HASH HA2;
+	SHA256_CTX Sha256Ctx;
+	unsigned char HA2Sha256[HASHLEN_SHA256];
+
+	if(auth->flags & AUTHENTICATE_SHA256) {
+		sr_SHA256_Init(&Sha256Ctx);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)method->s, method->len);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)uri->s, uri->len);
+
+		if(auth->flags & QOP_AUTH_INT) {
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)hentity, HASHHEXLEN_SHA256);
+		}
+
+		sr_SHA256_Final(HA2Sha256, &Sha256Ctx);
+		cvt_hex_sha256(HA2Sha256, HA2Hex);
+		return;
+	}
 
 	MD5Init(&Md5Ctx);
 	MD5Update(&Md5Ctx, method->s, method->len);
 	MD5Update(&Md5Ctx, ":", 1);
 	MD5Update(&Md5Ctx, uri->s, uri->len);
 
-	if ( auth->flags&QOP_AUTH_INT)
-	{
+	if(auth->flags & QOP_AUTH_INT) {
 		MD5Update(&Md5Ctx, ":", 1);
 		MD5Update(&Md5Ctx, hentity, HASHHEXLEN);
 	};
@@ -156,18 +245,45 @@ void uac_calc_HA2( str *method, str *uri,
 }
 
 
-
-/* 
- * calculate request-digest/response-digest as per HTTP Digest spec 
+/*
+ * calculate request-digest/response-digest as per HTTP Digest spec
  */
-void uac_calc_response( HASHHEX ha1, HASHHEX ha2,
-		struct authenticate_body *auth,
-		str* nc, str* cnonce,
-		HASHHEX response)
+void uac_calc_response(HASHHEX ha1, HASHHEX ha2, struct authenticate_body *auth,
+		str *nc, str *cnonce, HASHHEX response)
 {
 	MD5_CTX Md5Ctx;
 	HASH RespHash;
+	SHA256_CTX Sha256Ctx;
+	unsigned char RespHashSha256[HASHLEN_SHA256];
 	char *p;
+
+	if(auth->flags & AUTHENTICATE_SHA256) {
+		sr_SHA256_Init(&Sha256Ctx);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)ha1, HASHHEXLEN_SHA256);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)auth->nonce.s, auth->nonce.len);
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+
+		if(auth->qop.len) {
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)nc->s, nc->len);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)cnonce->s, cnonce->len);
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+			p = memchr(auth->qop.s, ',', auth->qop.len);
+			if(p) {
+				sr_SHA256_Update(&Sha256Ctx, (uint8_t *)auth->qop.s,
+						(size_t)(p - auth->qop.s));
+			} else {
+				sr_SHA256_Update(
+						&Sha256Ctx, (uint8_t *)auth->qop.s, auth->qop.len);
+			}
+			sr_SHA256_Update(&Sha256Ctx, (uint8_t *)":", 1);
+		}
+		sr_SHA256_Update(&Sha256Ctx, (uint8_t *)ha2, HASHHEXLEN_SHA256);
+		sr_SHA256_Final(RespHashSha256, &Sha256Ctx);
+		cvt_hex_sha256(RespHashSha256, response);
+		return;
+	}
 
 	MD5Init(&Md5Ctx);
 	MD5Update(&Md5Ctx, ha1, HASHHEXLEN);
@@ -175,8 +291,7 @@ void uac_calc_response( HASHHEX ha1, HASHHEX ha2,
 	MD5Update(&Md5Ctx, auth->nonce.s, auth->nonce.len);
 	MD5Update(&Md5Ctx, ":", 1);
 
-	if ( auth->qop.len)
-	{
+	if(auth->qop.len) {
 		MD5Update(&Md5Ctx, nc->s, nc->len);
 		MD5Update(&Md5Ctx, ":", 1);
 		MD5Update(&Md5Ctx, cnonce->s, cnonce->len);

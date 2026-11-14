@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -59,14 +61,14 @@ MODULE_VERSION
 
 #define MAXNUMBERLEN 31
 
-#define BLOCKLISTED_S		"blocklisted"
-#define BLOCKLISTED_LEN		(sizeof(BLOCKLISTED_S)-1)
-#define ALLOWLISTED_S		"allowlisted"
-#define ALLOWLISTED_LEN		(sizeof(ALLOWLISTED_S)-1)
-#define TRUE_S			"true"
-#define TRUE_LEN		(sizeof(TRUE_S)-1)
-#define FALSE_S			"false"
-#define FALSE_LEN		(sizeof(FALSE_S)-1)
+#define BLOCKLISTED_S "blocklisted"
+#define BLOCKLISTED_LEN (sizeof(BLOCKLISTED_S) - 1)
+#define ALLOWLISTED_S "allowlisted"
+#define ALLOWLISTED_LEN (sizeof(ALLOWLISTED_S) - 1)
+#define TRUE_S "true"
+#define TRUE_LEN (sizeof(TRUE_S) - 1)
+#define FALSE_S "false"
+#define FALSE_LEN (sizeof(FALSE_S) - 1)
 
 typedef struct _avp_check
 {
@@ -75,7 +77,8 @@ typedef struct _avp_check
 } avp_check_t;
 
 
-struct check_blocklist_fs_t {
+struct check_blocklist_fs_t
+{
 	struct dtrie_node_t *dtrie_root;
 };
 
@@ -85,21 +88,22 @@ int match_mode = 10; /* numeric */
 static struct dtrie_node_t *gnode = NULL;
 
 /* ---- fixup functions: */
-static int check_blocklist_fixup(void** param, int param_no);
-static int check_user_blocklist_fixup(void** param, int param_no);
-static int check_globalblocklist_fixup(void** param, int param_no);
+static int check_blocklist_fixup(void **param, int param_no);
+static int check_blocklist_fixup_free(void **arg, int arg_no);
+static int check_user_blocklist_fixup(void **param, int param_no);
+static int check_globalblocklist_fixup(void **param, int param_no);
 
 /* ---- exported commands: */
-static int check_user_blocklist(sip_msg_t *msg, char* puser,
-		char* pdomain, char* pnumber, char* ptable);
-static int check_user_allowlist(sip_msg_t *msg, char* puser,
-		char* pdomain, char* pnumber, char* ptable);
-static int check_user_blocklist2(sip_msg_t *msg, char* puser, char* pdomain);
-static int check_user_allowlist2(sip_msg_t *msg, char* puser, char* pdomain);
-static int check_user_blocklist3(sip_msg_t *msg, char* puser, char* pdomain,
-		char* pnumber);
-static int check_user_allowlist3(sip_msg_t *msg, char* puser, char* pdomain,
-		char* pnumber);
+static int check_user_blocklist(sip_msg_t *msg, char *puser, char *pdomain,
+		char *pnumber, char *ptable);
+static int check_user_allowlist(sip_msg_t *msg, char *puser, char *pdomain,
+		char *pnumber, char *ptable);
+static int check_user_blocklist2(sip_msg_t *msg, char *puser, char *pdomain);
+static int check_user_allowlist2(sip_msg_t *msg, char *puser, char *pdomain);
+static int check_user_blocklist3(
+		sip_msg_t *msg, char *puser, char *pdomain, char *pnumber);
+static int check_user_allowlist3(
+		sip_msg_t *msg, char *puser, char *pdomain, char *pnumber);
 static int check_blocklist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1);
 static int check_allowlist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1);
 static int check_globalblocklist(sip_msg_t *msg);
@@ -111,28 +115,28 @@ static int child_init(int rank);
 static int rpc_child_init(void);
 static void mod_destroy(void);
 
-static cmd_export_t cmds[]={
-	{ "check_user_blocklist", (cmd_function)check_user_blocklist2, 2,
-		check_user_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_user_allowlist", (cmd_function)check_user_allowlist2, 2,
-		check_user_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_user_blocklist", (cmd_function)check_user_blocklist3, 3,
-		check_user_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_user_allowlist", (cmd_function)check_user_allowlist3, 3,
-		check_user_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_user_blocklist", (cmd_function)check_user_blocklist, 4,
-		check_user_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_user_allowlist", (cmd_function)check_user_allowlist, 4,
-		check_user_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_blocklist", (cmd_function)check_blocklist, 1,
-		check_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_allowlist", (cmd_function)check_allowlist, 1,
-		check_blocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ "check_blocklist", (cmd_function)check_globalblocklist, 0,
-		check_globalblocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE },
-	{ 0, 0, 0, 0, 0, 0}
+/* clang-format off */
+static cmd_export_t cmds[] = {
+	{"check_user_blocklist", (cmd_function)check_user_blocklist2, 2,
+			check_user_blocklist_fixup, fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_user_allowlist", (cmd_function)check_user_allowlist2, 2,
+			check_user_blocklist_fixup, fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_user_blocklist", (cmd_function)check_user_blocklist3, 3,
+			check_user_blocklist_fixup, fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_user_allowlist", (cmd_function)check_user_allowlist3, 3,
+			check_user_blocklist_fixup, fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_user_blocklist", (cmd_function)check_user_blocklist, 4,
+			check_user_blocklist_fixup, fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_user_allowlist", (cmd_function)check_user_allowlist, 4,
+			check_user_blocklist_fixup, fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_blocklist", (cmd_function)check_blocklist, 1,
+			check_blocklist_fixup, check_blocklist_fixup_free, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_allowlist", (cmd_function)check_allowlist, 1,
+			check_blocklist_fixup, check_blocklist_fixup_free, REQUEST_ROUTE | FAILURE_ROUTE},
+	{"check_blocklist", (cmd_function)check_globalblocklist, 0,
+			check_globalblocklist_fixup, 0, REQUEST_ROUTE | FAILURE_ROUTE},
+	{0, 0, 0, 0, 0, 0}
 };
-
 
 static param_export_t params[] = {
 	userblocklist_DB_URL
@@ -140,26 +144,12 @@ static param_export_t params[] = {
 	globalblocklist_DB_TABLE
 	userblocklist_DB_COLS
 	globalblocklist_DB_COLS
-	{ "use_domain",      INT_PARAM, &use_domain },
-	{ "match_mode",	     INT_PARAM, &match_mode },
-	{ 0, 0, 0 }
+	{"use_domain", PARAM_INT, &use_domain},
+	{"match_mode", PARAM_INT, &match_mode},
+	{0, 0, 0}
 };
 
-
-#ifdef MI_REMOVED
-/* Exported MI functions */
-static mi_export_t mi_cmds[] = {
-	{ "reload_blocklist", mi_reload_blocklist, MI_NO_INPUT_FLAG, 0, mi_child_init },
-	{ "dump_blocklist", mi_dump_blocklist, MI_NO_INPUT_FLAG, 0, 0},
-	{ "check_blocklist", mi_check_blocklist, 0, 0, 0 },
-	{ "check_allowlist", mi_check_allowlist, 0, 0, 0 },
-	{ "check_userblocklist", mi_check_userblocklist, 0, 0, 0 },
-	{ "check_userallowlist", mi_check_userallowlist, 0, 0, 0 },
-	{ 0, 0, 0, 0, 0 }
-};
-#endif
-
-struct module_exports exports= {
+struct module_exports exports = {
 	"userblocklist", /* module name */
 	DEFAULT_DLFLAGS, /* dlopen flags */
 	cmds,            /* cmd (cfg function) exports */
@@ -171,9 +161,10 @@ struct module_exports exports= {
 	child_init,      /* per-child init function */
 	mod_destroy      /* module destroy function */
 };
+/* clang-format on */
 
-
-struct source_t {
+struct source_t
+{
 	struct source_t *next;
 	/** prefixes to be used are stored in this table */
 	char *table;
@@ -182,7 +173,8 @@ struct source_t {
 };
 
 
-struct source_list_t {
+struct source_list_t
+{
 	struct source_t *head;
 };
 
@@ -192,10 +184,10 @@ static struct source_list_t *sources = NULL;
 static struct dtrie_node_t *dtrie_root = NULL;
 
 
-static int check_user_blocklist_fixup(void** param, int param_no)
+static int check_user_blocklist_fixup(void **param, int param_no)
 {
-	if (param_no > 0 && param_no <= 4) {
-		if(strlen((char*)*param) == 0 && param_no != 4) {
+	if(param_no > 0 && param_no <= 4) {
+		if(strlen((char *)*param) == 0 && param_no != 4) {
 			LM_ERR("no parameter %d\n", param_no);
 			return E_UNSPEC;
 		}
@@ -209,32 +201,32 @@ static int check_user_blocklist_fixup(void** param, int param_no)
 }
 
 
-static int ki_check_user_list(sip_msg_t *msg, str* suser, str* sdomain,
-		str* snumber, str* stable, int listtype)
+static int ki_check_user_list(sip_msg_t *msg, str *suser, str *sdomain,
+		str *snumber, str *stable, int listtype)
 {
-	str table = { .len = 0, .s = NULL};
+	str table = {.len = 0, .s = NULL};
 
 	void **nodeflags;
 	char *ptr;
-	char req_number[MAXNUMBERLEN+1];
+	char req_number[MAXNUMBERLEN + 1];
 
-	if(stable==NULL || stable->len<=0) {
+	if(stable == NULL || stable->len <= 0) {
 		/* use default table name */
-		table.len=userblocklist_table.len;
-		table.s=userblocklist_table.s;
+		table.len = userblocklist_table.len;
+		table.s = userblocklist_table.s;
 	} else {
 		table.len = stable->len;
 		table.s = stable->s;
 	}
 
-	if (msg->first_line.type != SIP_REQUEST) {
+	if(msg->first_line.type != SIP_REQUEST) {
 		LM_ERR("SIP msg is not a request\n");
 		return -1;
 	}
 
-	if(snumber==NULL || snumber->s == NULL) {
+	if(snumber == NULL || snumber->s == NULL) {
 		/* use R-URI */
-		if ((parse_sip_msg_uri(msg) < 0) || (!msg->parsed_uri.user.s)
+		if((parse_sip_msg_uri(msg) < 0) || (!msg->parsed_uri.user.s)
 				|| (msg->parsed_uri.user.len > MAXNUMBERLEN)) {
 			LM_ERR("cannot parse msg URI\n");
 			return -1;
@@ -242,7 +234,7 @@ static int ki_check_user_list(sip_msg_t *msg, str* suser, str* sdomain,
 		strncpy(req_number, msg->parsed_uri.user.s, msg->parsed_uri.user.len);
 		req_number[msg->parsed_uri.user.len] = '\0';
 	} else {
-		if (snumber->len > MAXNUMBERLEN) {
+		if(snumber->len > MAXNUMBERLEN) {
 			LM_ERR("number to long\n");
 			return -1;
 		}
@@ -250,22 +242,25 @@ static int ki_check_user_list(sip_msg_t *msg, str* suser, str* sdomain,
 		req_number[snumber->len] = '\0';
 	}
 
-	LM_DBG("check entry %s for user %.*s on domain %.*s in table %.*s\n", req_number,
-		suser->len, suser->s, sdomain->len, sdomain->s, table.len, table.s);
-	if (db_build_userbl_tree(suser, sdomain, &table, dtrie_root, use_domain) < 0) {
+	LM_DBG("check entry %s for user %.*s on domain %.*s in table %.*s\n",
+			req_number, suser->len, suser->s, sdomain->len, sdomain->s,
+			table.len, table.s);
+	if(db_build_userbl_tree(suser, sdomain, &table, dtrie_root, use_domain)
+			< 0) {
 		LM_ERR("cannot build d-tree\n");
 		return -1;
 	}
 
 	ptr = req_number;
 	/* Skip over non-digits.  */
-	while (match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
+	while(match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
 		ptr = ptr + 1;
 	}
 
-	nodeflags = dtrie_longest_match(dtrie_root, ptr, strlen(ptr), NULL, match_mode);
-	if (nodeflags) {
-		if (*nodeflags == (void *)MARK_ALLOWLIST) {
+	nodeflags =
+			dtrie_longest_match(dtrie_root, ptr, strlen(ptr), NULL, match_mode);
+	if(nodeflags) {
+		if(*nodeflags == (void *)MARK_ALLOWLIST) {
 			/* LM_ERR("allowlisted"); */
 			return 1; /* found, but is allowlisted */
 		}
@@ -282,34 +277,34 @@ static int ki_check_user_list(sip_msg_t *msg, str* suser, str* sdomain,
 	return -1;
 }
 
-static int check_user_list(sip_msg_t *msg, char* puser, char* pdomain,
-		char* pnumber, char* ptable, int listtype)
+static int check_user_list(sip_msg_t *msg, char *puser, char *pdomain,
+		char *pnumber, char *ptable, int listtype)
 {
-	str user = { .len = 0, .s = NULL };
-	str domain = { .len = 0, .s = NULL};
-	str table = { .len = 0, .s = NULL};
-	str number = { .len = 0, .s = NULL};
+	str user = {.len = 0, .s = NULL};
+	str domain = {.len = 0, .s = NULL};
+	str table = {.len = 0, .s = NULL};
+	str number = {.len = 0, .s = NULL};
 
 	/* user */
-	if(fixup_get_svalue(msg, (gparam_t*)puser, &user)!=0) {
+	if(fixup_get_svalue(msg, (gparam_t *)puser, &user) != 0) {
 		LM_ERR("cannot print user pseudo-variable\n");
 		return -1;
 	}
 	/* domain */
-	if(fixup_get_svalue(msg, (gparam_t*)pdomain, &domain)!=0) {
+	if(fixup_get_svalue(msg, (gparam_t *)pdomain, &domain) != 0) {
 		LM_ERR("cannot print domain pseudo-variable\n");
 		return -1;
 	}
 	/* source number */
 	if(pnumber != NULL) {
-		if(fixup_get_svalue(msg, (gparam_t*)pnumber, &number)!=0) {
+		if(fixup_get_svalue(msg, (gparam_t *)pnumber, &number) != 0) {
 			LM_ERR("cannot print number pseudo-variable\n");
 			return -1;
 		}
 	}
 	/* table name */
 	if(ptable != NULL) {
-		if(fixup_get_svalue(msg, (gparam_t*)ptable, &table)!=0) {
+		if(fixup_get_svalue(msg, (gparam_t *)ptable, &table) != 0) {
 			LM_ERR("cannot print table pseudo-variable\n");
 			return -1;
 		}
@@ -318,70 +313,70 @@ static int check_user_list(sip_msg_t *msg, char* puser, char* pdomain,
 	return ki_check_user_list(msg, &user, &domain, &number, &table, listtype);
 }
 
-static int check_user_allowlist(sip_msg_t *msg, char* puser,
-		char* pdomain, char* pnumber, char* ptable)
+static int check_user_allowlist(
+		sip_msg_t *msg, char *puser, char *pdomain, char *pnumber, char *ptable)
 {
 	return check_user_list(msg, puser, pdomain, pnumber, ptable, 1);
 }
 
-static int ki_check_user_allowlist_table(sip_msg_t *msg, str* suser,
-		str* sdomain, str* snumber, str* stable)
+static int ki_check_user_allowlist_table(
+		sip_msg_t *msg, str *suser, str *sdomain, str *snumber, str *stable)
 {
 	return ki_check_user_list(msg, suser, sdomain, snumber, stable, 1);
 }
 
-static int check_user_blocklist(sip_msg_t *msg, char* puser,
-		char* pdomain, char* pnumber, char* ptable)
+static int check_user_blocklist(
+		sip_msg_t *msg, char *puser, char *pdomain, char *pnumber, char *ptable)
 {
 	return check_user_list(msg, puser, pdomain, pnumber, ptable, 0);
 }
 
-static int ki_check_user_blocklist_table(sip_msg_t *msg, str* suser,
-		str* sdomain, str* snumber, str* stable)
+static int ki_check_user_blocklist_table(
+		sip_msg_t *msg, str *suser, str *sdomain, str *snumber, str *stable)
 {
 	return ki_check_user_list(msg, suser, sdomain, snumber, stable, 0);
 }
 
-static int check_user_allowlist2(sip_msg_t *msg, char* puser, char* pdomain)
+static int check_user_allowlist2(sip_msg_t *msg, char *puser, char *pdomain)
 {
 	return check_user_list(msg, puser, pdomain, NULL, NULL, 1);
 }
 
-static int ki_check_user_allowlist(sip_msg_t *msg, str* suser, str* sdomain)
+static int ki_check_user_allowlist(sip_msg_t *msg, str *suser, str *sdomain)
 {
 	return ki_check_user_list(msg, suser, sdomain, NULL, NULL, 1);
 }
 
-static int check_user_blocklist2(sip_msg_t *msg, char* puser, char* pdomain)
+static int check_user_blocklist2(sip_msg_t *msg, char *puser, char *pdomain)
 {
 	return check_user_list(msg, puser, pdomain, NULL, NULL, 0);
 }
 
-static int ki_check_user_blocklist(sip_msg_t *msg, str* suser, str* sdomain)
+static int ki_check_user_blocklist(sip_msg_t *msg, str *suser, str *sdomain)
 {
 	return ki_check_user_list(msg, suser, sdomain, NULL, NULL, 0);
 }
 
-static int check_user_allowlist3(sip_msg_t *msg, char* puser, char* pdomain,
-		char* pnumber)
+static int check_user_allowlist3(
+		sip_msg_t *msg, char *puser, char *pdomain, char *pnumber)
 {
 	return check_user_list(msg, puser, pdomain, pnumber, NULL, 1);
 }
 
-static int ki_check_user_allowlist_number(sip_msg_t *msg, str* suser,
-		str* sdomain, str* snumber)
+static int ki_check_user_allowlist_number(
+		sip_msg_t *msg, str *suser, str *sdomain, str *snumber)
 {
 	return ki_check_user_list(msg, suser, sdomain, snumber, NULL, 1);
 }
 
-static int check_user_blocklist3(sip_msg_t *msg, char* puser, char* pdomain,
-		char* pnumber)
+static int check_user_blocklist3(
+		sip_msg_t *msg, char *puser, char *pdomain, char *pnumber)
 {
 	return check_user_list(msg, puser, pdomain, pnumber, NULL, 0);
 }
 
-static int ki_check_user_blocklist_number(sip_msg_t *msg, str* suser,
-		str* sdomain, str* snumber)
+static int ki_check_user_blocklist_number(
+		sip_msg_t *msg, str *suser, str *sdomain, str *snumber)
 {
 	return ki_check_user_list(msg, suser, sdomain, snumber, NULL, 0);
 }
@@ -393,8 +388,9 @@ static int ki_check_user_blocklist_number(sip_msg_t *msg, str* suser,
 static struct dtrie_node_t *table2dt(const char *table)
 {
 	struct source_t *src = sources->head;
-	while (src) {
-		if (strcmp(table, src->table) == 0) return src->dtrie_root;
+	while(src) {
+		if(strcmp(table, src->table) == 0)
+			return src->dtrie_root;
 		src = src->next;
 	}
 
@@ -421,7 +417,7 @@ static int load_source(struct source_t *src)
 	tmp.len = strlen(src->table);
 
 	result = db_reload_source(&tmp, src->dtrie_root);
-	if (result < 0) {
+	if(result < 0) {
 		LM_ERR("cannot load source from '%.*s'\n", tmp.len, tmp.s);
 		return 0;
 	}
@@ -438,31 +434,32 @@ static int load_source(struct source_t *src)
  */
 static int add_source(const char *table)
 {
+	struct source_t *src;
+
+	/* avoids dirty reads when adding source and d-tree */
+	lock_get(lock);
+
 	/* check if the table is already present */
-	struct source_t *src = sources->head;
-	while (src) {
-		if (strcmp(table, src->table) == 0) {
+	src = sources->head;
+	while(src) {
+		if(src->table && strcmp(table, src->table) == 0) {
 			LM_DBG("table %s is already present", src->table);
+			lock_release(lock);
 			return 0;
 		}
 		src = src->next;
 	}
 
 	src = shm_malloc(sizeof(struct source_t));
-	if (!src) {
+	if(!src) {
 		SHM_MEM_ERROR;
+		lock_release(lock);
 		return -1;
 	}
 	memset(src, 0, sizeof(struct source_t));
 
-	/* avoids dirty reads when adding source and d-tree */
-	lock_get(lock);
-
-	src->next = sources->head;
-	sources->head = src;
-
-	src->table = shm_malloc(strlen(table)+1);
-	if (!src->table) {
+	src->table = shm_malloc(strlen(table) + 1);
+	if(!src->table) {
 		SHM_MEM_ERROR;
 		shm_free(src);
 		lock_release(lock);
@@ -473,43 +470,52 @@ static int add_source(const char *table)
 
 	src->dtrie_root = dtrie_init(match_mode);
 
-	if (src->dtrie_root == NULL) {
+	if(src->dtrie_root == NULL) {
 		LM_ERR("could not initialize data");
+		shm_free(src->table);
+		shm_free(src);
 		lock_release(lock);
 		return -1;
 	}
 
 	if(load_source(src) < 0) {
 		LM_ERR("could not load table data");
+		dtrie_destroy(&(src->dtrie_root), NULL, match_mode);
+		shm_free(src->table);
+		shm_free(src);
 		lock_release(lock);
 		return -1;
 	}
+
+	/* publish only a fully built entry */
+	src->next = sources->head;
+	sources->head = src;
 
 	lock_release(lock);
 	return 0;
 }
 
 
-static int check_globalblocklist_fixup(void** param, int param_no)
+static int check_globalblocklist_fixup(void **param, int param_no)
 {
-	char * table = globalblocklist_table.s;
-	if(param_no > 0){
+	char *table = globalblocklist_table.s;
+	if(param_no > 0) {
 		LM_ERR("Wrong number of parameters\n");
 		return -1;
 	}
 
-	if (!table) {
+	if(!table) {
 		LM_ERR("no table name\n");
 		return -1;
 	}
 	/* try to add the table */
-	if (add_source(table) != 0) {
+	if(add_source(table) != 0) {
 		LM_ERR("could not add table");
 		return -1;
 	}
 
 	gnode = table2dt(table);
-	if (!gnode) {
+	if(!gnode) {
 		LM_ERR("invalid table '%s'\n", table);
 		return -1;
 	}
@@ -519,28 +525,28 @@ static int check_globalblocklist_fixup(void** param, int param_no)
 
 static int ki_check_globalblocklist(sip_msg_t *msg)
 {
-	char * table = globalblocklist_table.s;
-	struct check_blocklist_fs_t* arg = NULL;
+	char *table = globalblocklist_table.s;
+	struct check_blocklist_fs_t *arg = NULL;
 	int result;
 
-	if (!table) {
+	if(!table) {
 		LM_ERR("no table name\n");
 		return -1;
 	}
 	/* try to add the table */
-	if (add_source(table) != 0) {
+	if(add_source(table) != 0) {
 		LM_ERR("could not add table");
 		return -1;
 	}
 
 	gnode = table2dt(table);
-	if (!gnode) {
+	if(!gnode) {
 		LM_ERR("invalid table '%s'\n", table);
 		return -1;
 	}
 
 	arg = pkg_malloc(sizeof(struct check_blocklist_fs_t));
-	if (!arg) {
+	if(!arg) {
 		PKG_MEM_ERROR;
 		return -1;
 	}
@@ -553,12 +559,12 @@ static int ki_check_globalblocklist(sip_msg_t *msg)
 	return result;
 }
 
-static int check_globalblocklist(sip_msg_t* msg)
+static int check_globalblocklist(sip_msg_t *msg)
 {
-	static struct check_blocklist_fs_t* arg = NULL;
-	if(!arg){
+	static struct check_blocklist_fs_t *arg = NULL;
+	if(!arg) {
 		arg = pkg_malloc(sizeof(struct check_blocklist_fs_t));
-		if (!arg) {
+		if(!arg) {
 			PKG_MEM_ERROR;
 			return -1;
 		}
@@ -574,66 +580,72 @@ static int check_blocklist_fixup(void **arg, int arg_no)
 	struct dtrie_node_t *node = NULL;
 	struct check_blocklist_fs_t *new_arg;
 
-	if (arg_no != 1) {
+	if(arg_no != 1) {
 		LM_ERR("wrong number of parameters\n");
 		return -1;
 	}
 
-	if (!table) {
+	if(!table) {
 		LM_ERR("no table name\n");
 		return -1;
 	}
 	/* try to add the table */
-	if (add_source(table) != 0) {
+	if(add_source(table) != 0) {
 		LM_ERR("could not add table");
 		return -1;
 	}
 
 	/* get the node that belongs to the table */
 	node = table2dt(table);
-	if (!node) {
+	if(!node) {
 		LM_ERR("invalid table '%s'\n", table);
 		return -1;
 	}
 
 	new_arg = pkg_malloc(sizeof(struct check_blocklist_fs_t));
-	if (!new_arg) {
+	if(!new_arg) {
 		PKG_MEM_ERROR;
 		return -1;
 	}
 	memset(new_arg, 0, sizeof(struct check_blocklist_fs_t));
 	new_arg->dtrie_root = node;
-	*arg=(void*)new_arg;
+	*arg = (void *)new_arg;
 
 	return 0;
 }
 
-static int ki_check_blocklist(sip_msg_t *msg, str* stable)
+static int check_blocklist_fixup_free(void **arg, int arg_no)
+{
+	pkg_free(*arg);
+	return 0;
+}
+
+static int ki_check_blocklist(sip_msg_t *msg, str *stable)
 {
 	struct dtrie_node_t *node = NULL;
-	struct check_blocklist_fs_t* arg = NULL;
+	struct check_blocklist_fs_t *arg = NULL;
 	int result;
 
-	if(stable==NULL || stable->len<=0) {
+	if(stable == NULL || stable->len <= 0) {
 		LM_ERR("no table name\n");
 		return -1;
 	}
 
 	/* try to add the table */
-	if (add_source(stable->s) != 0) {
+	if(add_source(stable->s) != 0) {
 		LM_ERR("could not add table '%s'\n", stable->s);
 		return -1;
 	}
 
 	/* get the node that belongs to the table */
 	node = table2dt(stable->s);
-	if (!node) {
+	if(!node) {
 		LM_ERR("invalid table '%s'\n", stable->s);
 		return -1;
 	}
 
 	arg = pkg_malloc(sizeof(struct check_blocklist_fs_t));
-	if (!arg) {
+	if(!arg) {
 		PKG_MEM_ERROR;
 		return -1;
 	}
@@ -650,15 +662,16 @@ static int check_blocklist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1)
 {
 	void **nodeflags;
 	char *ptr;
-	char req_number[MAXNUMBERLEN+1];
+	char req_number[MAXNUMBERLEN + 1];
 	int ret = -1;
 
-	if (msg->first_line.type != SIP_REQUEST) {
+	if(msg->first_line.type != SIP_REQUEST) {
 		LM_ERR("SIP msg is not a request\n");
 		return -1;
 	}
 
-	if ((parse_sip_msg_uri(msg) < 0) || (!msg->parsed_uri.user.s) || (msg->parsed_uri.user.len > MAXNUMBERLEN)) {
+	if((parse_sip_msg_uri(msg) < 0) || (!msg->parsed_uri.user.s)
+			|| (msg->parsed_uri.user.len > MAXNUMBERLEN)) {
 		LM_ERR("cannot parse msg URI\n");
 		return -1;
 	}
@@ -667,25 +680,24 @@ static int check_blocklist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1)
 
 	ptr = req_number;
 	/* Skip over non-digits.  */
-	while (match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
-			ptr = ptr + 1;
+	while(match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
+		ptr = ptr + 1;
 	}
 
 	LM_DBG("check entry %s\n", req_number);
 
 	/* avoids dirty reads when updating d-tree */
 	lock_get(lock);
-	nodeflags = dtrie_longest_match(arg1->dtrie_root, ptr, strlen(ptr), NULL, match_mode);
-	if (nodeflags) {
-		if (*nodeflags == (void *)MARK_ALLOWLIST) {
+	nodeflags = dtrie_longest_match(
+			arg1->dtrie_root, ptr, strlen(ptr), NULL, match_mode);
+	if(nodeflags) {
+		if(*nodeflags == (void *)MARK_ALLOWLIST) {
 			/* LM_DBG("allowlisted"); */
 			ret = 1; /* found, but is allowlisted */
-		}
-		else {
+		} else {
 			LM_DBG("entry %s is blocklisted\n", req_number);
 		}
-	}
-	else {
+	} else {
 		/* LM_ERR("not found"); */
 		ret = 1; /* not found is ok */
 	}
@@ -694,32 +706,32 @@ static int check_blocklist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1)
 	return ret;
 }
 
-static int ki_check_allowlist(sip_msg_t *msg, str* stable)
+static int ki_check_allowlist(sip_msg_t *msg, str *stable)
 {
 	struct dtrie_node_t *node = NULL;
-	struct check_blocklist_fs_t* arg = NULL;
+	struct check_blocklist_fs_t *arg = NULL;
 	int result;
 
-	if(stable==NULL || stable->len<=0) {
+	if(stable == NULL || stable->len <= 0) {
 		LM_ERR("no table name\n");
 		return -1;
 	}
 
 	/* try to add the table */
-	if (add_source(stable->s) != 0) {
+	if(add_source(stable->s) != 0) {
 		LM_ERR("could not add table '%s'\n", stable->s);
 		return -1;
 	}
 
 	/* get the node that belongs to the table */
 	node = table2dt(stable->s);
-	if (!node) {
+	if(!node) {
 		LM_ERR("invalid table '%s'\n", stable->s);
 		return -1;
 	}
 
 	arg = pkg_malloc(sizeof(struct check_blocklist_fs_t));
-	if (!arg) {
+	if(!arg) {
 		PKG_MEM_ERROR;
 		return -1;
 	}
@@ -736,15 +748,16 @@ static int check_allowlist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1)
 {
 	void **nodeflags;
 	char *ptr;
-	char req_number[MAXNUMBERLEN+1];
+	char req_number[MAXNUMBERLEN + 1];
 	int ret = -1;
 
-	if (msg->first_line.type != SIP_REQUEST) {
+	if(msg->first_line.type != SIP_REQUEST) {
 		LM_ERR("SIP msg is not a request\n");
 		return -1;
 	}
 
-	if ((parse_sip_msg_uri(msg) < 0) || (!msg->parsed_uri.user.s) || (msg->parsed_uri.user.len > MAXNUMBERLEN)) {
+	if((parse_sip_msg_uri(msg) < 0) || (!msg->parsed_uri.user.s)
+			|| (msg->parsed_uri.user.len > MAXNUMBERLEN)) {
 		LM_ERR("cannot parse msg URI\n");
 		return -1;
 	}
@@ -753,7 +766,7 @@ static int check_allowlist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1)
 
 	ptr = req_number;
 	/* Skip over non-digits.  */
-	while (match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
+	while(match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
 		ptr = ptr + 1;
 	}
 
@@ -761,17 +774,16 @@ static int check_allowlist(sip_msg_t *msg, struct check_blocklist_fs_t *arg1)
 
 	/* avoids dirty reads when updating d-tree */
 	lock_get(lock);
-	nodeflags = dtrie_longest_match(arg1->dtrie_root, ptr, strlen(ptr), NULL, match_mode);
-	if (nodeflags) {
-		if (*nodeflags == (void *)MARK_ALLOWLIST) {
+	nodeflags = dtrie_longest_match(
+			arg1->dtrie_root, ptr, strlen(ptr), NULL, match_mode);
+	if(nodeflags) {
+		if(*nodeflags == (void *)MARK_ALLOWLIST) {
 			/* LM_DBG("allowlisted"); */
 			ret = 1; /* found, but is allowlisted */
-		}
-		else {
+		} else {
 			LM_DBG("entry %s is blocklisted\n", req_number);
 		}
-	}
-	else {
+	} else {
 		/* LM_ERR("not found"); */
 		ret = -1; /* not found is ok */
 	}
@@ -793,8 +805,9 @@ static int reload_sources(void)
 	lock_get(lock);
 
 	src = sources->head;
-	while (src) {
-		LM_INFO("Reloading source table '%s' with dtrie root '%p'\n", src->table, src->dtrie_root);
+	while(src) {
+		LM_INFO("Reloading source table '%s' with dtrie root '%p'\n",
+				src->table, src->dtrie_root);
 		if(load_source(src) < 0) {
 			result = -1;
 			break;
@@ -812,7 +825,7 @@ static int reload_sources(void)
 static int init_source_list(void)
 {
 	sources = shm_malloc(sizeof(struct source_list_t));
-	if (!sources) {
+	if(!sources) {
 		SHM_MEM_ERROR;
 		return -1;
 	}
@@ -821,14 +834,15 @@ static int init_source_list(void)
 }
 
 
-static void destroy_source_list(void)
+void ubl_destroy_source_list(void)
 {
-	if (sources) {
-		while (sources->head) {
+	if(sources) {
+		while(sources->head) {
 			struct source_t *src = sources->head;
 			sources->head = src->next;
 
-			if (src->table) shm_free(src->table);
+			if(src->table)
+				shm_free(src->table);
 			dtrie_destroy(&(src->dtrie_root), NULL, match_mode);
 			shm_free(src);
 		}
@@ -842,11 +856,11 @@ static void destroy_source_list(void)
 static int init_shmlock(void)
 {
 	lock = lock_alloc();
-	if (!lock) {
+	if(!lock) {
 		LM_CRIT("cannot allocate memory for lock.\n");
 		return -1;
 	}
-	if (lock_init(lock) == 0) {
+	if(lock_init(lock) == 0) {
 		LM_CRIT("cannot initialize lock.\n");
 		return -1;
 	}
@@ -855,427 +869,388 @@ static int init_shmlock(void)
 }
 
 
-static void destroy_shmlock(void)
+void ubl_destroy_shmlock(void)
 {
-	if (lock) {
+	if(lock) {
 		lock_destroy(lock);
 		lock_dealloc((void *)lock);
 		lock = NULL;
 	}
 }
 
-#ifdef MI_REMOVED
-static void dump_dtrie_mi(const struct dtrie_node_t *root,
-	const unsigned int branches, char *prefix, int *length, struct mi_root *reply)
+static void dump_dtrie_rpc(rpc_t *rpc, void *ctx,
+		const struct dtrie_node_t *root, const unsigned int branches,
+		char *prefix, int *length)
 {
-	struct mi_node *crt_node;
 	unsigned int i;
 	char digit, *val = NULL;
 	int val_len = 0;
+	void *out;
 
 	/* Sanity check - should not reach here anyway */
-	if (NULL == root) {
+	if(NULL == root) {
 		LM_ERR("root dtrie is NULL\n");
-		return ;
+		return;
 	}
 
 	/* If data found, add a new node to the reply tree */
-	if (root->data) {
-		/* Create new node and add it to the roots's kids */
-		if(!(crt_node = add_mi_node_child(&reply->node, MI_DUP_NAME, prefix,
-				*length, 0, 0)) ) {
-			LM_ERR("cannot add the child node to the tree\n");
-			return ;
-		}
+	if(root->data) {
+		if(rpc->add(ctx, "{", &out) < 0)
+			goto error;
 
 		/* Resolve the value of the allowlist attribute */
-		if (root->data == (void *)MARK_BLOCKLIST) {
+		if(root->data == (void *)MARK_BLOCKLIST) {
 			val = int2str(0, &val_len);
-		} else if (root->data == (void *)MARK_ALLOWLIST) {
+		} else if(root->data == (void *)MARK_ALLOWLIST) {
 			val = int2str(1, &val_len);
 		}
 
-		/* Add the attribute to the current node */
-		if((add_mi_attr(crt_node, MI_DUP_VALUE,
-				userblocklist_allowlist_col.s,
-				userblocklist_allowlist_col.len,
-				val, val_len)) == 0) {
-			LM_ERR("cannot add attributes to the node\n");
-			return ;
-		}
+		prefix[*length] = '\0';
+
+		rpc->struct_add(out, "ss", "prefix", prefix,
+				userblocklist_allowlist_col.s, val);
 	}
 
 	/* Perform a DFS search */
-	for (i = 0; i < branches; i++) {
+	for(i = 0; i < branches; i++) {
 		/* If child branch found, traverse it */
-		if (root->child[i]) {
-			if (branches == 10) {
+		if(root->child[i]) {
+			if(branches == 10) {
 				digit = i + '0';
 			} else {
 				digit = i;
 			}
 
 			/* Push digit in prefix stack */
-			if (*length >= MAXNUMBERLEN + 1) {
+			if(*length >= MAXNUMBERLEN + 1) {
 				LM_ERR("prefix length exceeds %d\n", MAXNUMBERLEN + 1);
-				return ;
+				return;
 			}
 			prefix[(*length)++] = digit;
 
 			/* Recursive DFS call */
-			dump_dtrie_mi(root->child[i], branches, prefix, length, reply);
+			dump_dtrie_rpc(rpc, ctx, root->child[i], branches, prefix, length);
 
 			/* Pop digit from prefix stack */
 			(*length)--;
 		}
 	}
 
-	return ;
+	return;
+
+error:
+	rpc->fault(ctx, 500, "Dump dtrie failed");
+	return;
 }
 
-
-static struct mi_root * check_list_mi(struct mi_root* cmd, int list_type)
+static void dump_blocklist_rpc(rpc_t *rpc, void *ctx)
 {
-	struct mi_root *tmp = NULL;
-	struct mi_node *crt_node, *node;
-	struct mi_attr *crt_attr;
-	void **nodeflags;
-	int ret = -1;
-	char *ptr;
-	char req_prefix[MAXNUMBERLEN + 1];
-	str prefix, val, attr;
-
-	node = cmd->node.kids;
-
-	/* Get the prefix number */
-	if (NULL == node)
-		return init_mi_tree(400, MI_MISSING_PARM_S, MI_MISSING_PARM_LEN);
-
-	if (NULL == node->value.s || node->value.len == 0)
-		return init_mi_tree(400, MI_BAD_PARM_S, MI_BAD_PARM_LEN);
-	prefix = node->value;
-	strncpy(req_prefix, prefix.s, prefix.len);
-	req_prefix[prefix.len] = '\0';
-
-	/* Check that just 1 argument is given */
-	node = node->next;
-	if (node)
-		return init_mi_tree( 400, MI_MISSING_PARM_S, MI_MISSING_PARM_LEN);
+	char prefix_buff[MAXNUMBERLEN + 1];
+	int length = 0;
 
 	/* Check that global blocklist exists */
-	if (!gnode) {
+	if(!gnode) {
 		LM_ERR("the global blocklist is NULL\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
+		goto error;
 	}
 
-	/* Check that reply tree is successfully initialized */
-	tmp = init_mi_tree(200, MI_OK_S, MI_OK_LEN);
-	if (!tmp) {
-		LM_ERR("the MI tree cannot be initialized!\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
+	dump_dtrie_rpc(rpc, ctx, gnode, match_mode, prefix_buff, &length);
+
+	return;
+
+error:
+	rpc->fault(ctx, 500, "Dump blocklist failed");
+	return;
+}
+
+static void check_list_rpc(rpc_t *rpc, void *ctx, int list_type)
+{
+	str prefix, val;
+	char req_prefix[MAXNUMBERLEN + 1], *ptr;
+	void **nodeflags, *out;
+	int ret = 0;
+
+	/* Sanity checks */
+	if(rpc->scan(ctx, ".S", &prefix) < 1)
+		goto error_scan;
+	if(prefix.s == NULL || prefix.len <= 0)
+		goto error_scan;
+	if(prefix.len > MAXNUMBERLEN)
+		goto error_prefix;
+	if(rpc->add(ctx, "{", &out) < 0)
+		goto error;
+
+	memcpy(req_prefix, prefix.s, (size_t)prefix.len);
+	req_prefix[prefix.len] = '\0';
+
+	/* Check that global blocklist exists */
+	if(!gnode) {
+		LM_ERR("global gnode not found\n");
+		goto error;
 	}
 
 	/* Skip over non-digits. */
 	ptr = req_prefix;
-	while (match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
+	while(match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
 		ptr = ptr + 1;
 	}
 
 	/* Avoids dirty reads when updating d-tree */
 	lock_get(lock);
 	nodeflags = dtrie_longest_match(gnode, ptr, strlen(ptr), NULL, match_mode);
-	if (nodeflags) {
-		if (*nodeflags == (void *)MARK_ALLOWLIST) {
-			LM_DBG("prefix %.*s is allowlisted in table %.*s\n",
-				prefix.len, prefix.s, globalblocklist_table.len, globalblocklist_table.s);
+	if(nodeflags) {
+		if(*nodeflags == (void *)MARK_ALLOWLIST) {
+			LM_DBG("prefix %.*s is allowlisted in table %.*s\n", prefix.len,
+					prefix.s, globalblocklist_table.len,
+					globalblocklist_table.s);
 			ret = MARK_ALLOWLIST;
-		} else if (*nodeflags == (void *)MARK_BLOCKLIST) {
-			LM_DBG("prefix %.*s is blocklisted in table %.*s\n",
-				prefix.len, prefix.s, globalblocklist_table.len, globalblocklist_table.s);
+		} else if(*nodeflags == (void *)MARK_BLOCKLIST) {
+			LM_DBG("prefix %.*s is blocklisted in table %.*s\n", prefix.len,
+					prefix.s, globalblocklist_table.len,
+					globalblocklist_table.s);
 			ret = MARK_BLOCKLIST;
 		}
-	}
-	else {
-		LM_DBG("prefix %.*s not found in table %.*s\n",
-			prefix.len, prefix.s, globalblocklist_table.len, globalblocklist_table.s);
+	} else {
+		LM_DBG("prefix %.*s not found in table %.*s\n", prefix.len, prefix.s,
+				globalblocklist_table.len, globalblocklist_table.s);
 	}
 	lock_release(lock);
-
-	/* Create new node and add it to the reply roots's kids */
-	if(!(crt_node = add_mi_node_child(&tmp->node, MI_DUP_NAME,
-			prefix.s, prefix.len, 0, 0)) ) {
-		LM_ERR("cannot add the child node to the tree\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
-	}
 
 	/* Resolve the value of the attribute to be returned */
 	val.s = FALSE_S;
 	val.len = FALSE_LEN;
 
-	switch (list_type) {
+	switch(list_type) {
 		case MARK_ALLOWLIST:
-			attr.s = ALLOWLISTED_S;
-			attr.len = ALLOWLISTED_LEN;
-
-			if (ret == MARK_ALLOWLIST) {
+			if(ret == MARK_ALLOWLIST) {
 				val.s = TRUE_S;
 				val.len = TRUE_LEN;
 			}
 
+			rpc->struct_add(out, "SS", "prefix", &prefix, ALLOWLISTED_S, &val);
 			break;
+
 		case MARK_BLOCKLIST:
-			attr.s = BLOCKLISTED_S;
-			attr.len = BLOCKLISTED_LEN;
-
-			if (ret == MARK_BLOCKLIST) {
+			if(ret == MARK_BLOCKLIST) {
 				val.s = TRUE_S;
 				val.len = TRUE_LEN;
 			}
 
+			rpc->struct_add(out, "SS", "prefix", &prefix, BLOCKLISTED_S, &val);
 			break;
+
 		default:
 			LM_ERR("list_type not found\n");
-			return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
+			goto error;
 	}
 
-	/* Add the attribute to the current node */
-	if (!(crt_attr = add_mi_attr(crt_node, MI_DUP_VALUE,
-			attr.s, attr.len, val.s, val.len))) {
-		LM_ERR("cannot add attribute to the node\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
-	}
+	return;
 
-	return tmp;
+error_scan:
+	rpc->fault(ctx, 500, "Check failed: 1 argument needed (\"prefix\")");
+	return;
+
+error_prefix:
+	rpc->fault(ctx, 400, "Check failed: prefix exceeds %d characters",
+			MAXNUMBERLEN);
+	return;
+
+error:
+	rpc->fault(ctx, 500, "Check failed");
+	return;
 }
 
-
-static struct mi_root * check_userlist_mi(struct mi_root* cmd, int list_type)
+static void check_userlist_rpc(rpc_t *rpc, void *ctx, int list_type)
 {
-	struct mi_root *tmp = NULL;
-	struct mi_node *crt_node, *node;
-	struct mi_attr *crt_attr;
-	void **nodeflags;
-	int ret = -1;
-	int local_use_domain = 0;
-	char *ptr;
-	char req_prefix[MAXNUMBERLEN + 1];
-	str user, prefix, table, val, attr, domain;
+	str prefix, user, domain, table, val;
+	char req_prefix[MAXNUMBERLEN + 1], *ptr;
+	void **nodeflags, *out;
+	int ret = 0, local_use_domain = 0;
 
-	node = cmd->node.kids;
-
-	/* Get the user number */
-	if (NULL == node)
-		return init_mi_tree(400, MI_MISSING_PARM_S, MI_MISSING_PARM_LEN);
-
-	if (NULL == node->value.s || node->value.len == 0)
-		return init_mi_tree(400, MI_BAD_PARM_S, MI_BAD_PARM_LEN);
-	user = node->value;
-
-	/* Get the domain name */
-	node = node->next;
-	if (NULL == node)
-		return init_mi_tree(400, MI_MISSING_PARM_S, MI_MISSING_PARM_LEN);
-
-	if (NULL == node->value.s || node->value.len == 0)
-		return init_mi_tree(400, MI_BAD_PARM_S, MI_BAD_PARM_LEN);
-	domain = node->value;
-
-	/* Get the prefix number */
-	node = node->next;
-	if (node) {
-		/* Got 3 params, the third one is the prefix */
-		if (NULL == node->value.s || node->value.len == 0)
-			return init_mi_tree(400, MI_BAD_PARM_S, MI_BAD_PARM_LEN);
-		prefix = node->value;
-		local_use_domain = 1;
-	} else {
-		/* Got 2 params, the second one is the prefix */
-		prefix = domain;
-		local_use_domain = 0;
+	/* Sanity checks */
+	if(rpc->scan(ctx, ".S.S", &prefix, &user) < 2)
+		goto error_scan;
+	if(rpc->scan(ctx, ".S", &domain) < 1) {
+		domain.s = "";
+		domain.len = 0;
 	}
+	if(prefix.s == NULL || prefix.len <= 0 || user.s == NULL || user.len <= 0)
+		goto error_scan;
+	if(prefix.len > MAXNUMBERLEN)
+		goto error_prefix;
+	if(rpc->add(ctx, "{", &out) < 0)
+		goto error;
+	if(domain.s != NULL && domain.len != 0)
+		local_use_domain = 1;
 
-	strncpy(req_prefix, prefix.s, prefix.len);
+	memcpy(req_prefix, prefix.s, (size_t)prefix.len);
 	req_prefix[prefix.len] = '\0';
 
-	/* Check that a maximum of 3 arguments are given */
-	if (node)
-		node = node->next;
-	if (node)
-		return init_mi_tree(400, MI_MISSING_PARM_S, MI_MISSING_PARM_LEN);
+	/* Check that global blocklist exists */
+	if(!gnode) {
+		LM_ERR("global gnode not found\n");
+		goto error;
+	}
 
 	/* Build userblocklist dtrie */
 	table = userblocklist_table;
 	LM_DBG("check entry %s for user %.*s@%.*s in table %.*s, use domain=%d\n",
-		req_prefix, user.len, user.s, domain.len, domain.s,
-		table.len, table.s, local_use_domain);
-	if (db_build_userbl_tree(&user, &domain, &table, dtrie_root, local_use_domain) < 0) {
+			req_prefix, user.len, user.s, domain.len, domain.s, table.len,
+			table.s, local_use_domain);
+	if(db_build_userbl_tree(
+			   &user, &domain, &table, dtrie_root, local_use_domain)
+			< 0) {
 		LM_ERR("cannot build d-tree\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
-	}
-
-	/* Check that reply tree is successfully initialized */
-	tmp = init_mi_tree(200, MI_OK_S, MI_OK_LEN);
-	if (!tmp) {
-		LM_ERR("the MI tree cannot be initialized!\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
+		goto error;
 	}
 
 	/* Skip over non-digits. */
 	ptr = req_prefix;
-	while (match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
+	while(match_mode == 10 && strlen(ptr) > 0 && !isdigit(*ptr)) {
 		ptr = ptr + 1;
 	}
 
+	/* Avoids dirty reads when updating d-tree */
 	/* Search for a match in dtrie */
-	nodeflags = dtrie_longest_match(dtrie_root, ptr, strlen(ptr), NULL, match_mode);
-	if (nodeflags) {
-		if (*nodeflags == (void *)MARK_ALLOWLIST) {
+	nodeflags =
+			dtrie_longest_match(dtrie_root, ptr, strlen(ptr), NULL, match_mode);
+	if(nodeflags) {
+		if(*nodeflags == (void *)MARK_ALLOWLIST) {
 			LM_DBG("user %.*s is allowlisted for prefix %.*s in table %.*s\n",
-				user.len, user.s, prefix.len, prefix.s, table.len, table.s);
+					user.len, user.s, prefix.len, prefix.s, table.len, table.s);
 			ret = MARK_ALLOWLIST;
-		} else if (*nodeflags == (void *)MARK_BLOCKLIST) {
+		} else if(*nodeflags == (void *)MARK_BLOCKLIST) {
 			LM_DBG("user %.*s is blocklisted for prefix %.*s in table %.*s\n",
-				user.len, user.s, prefix.len, prefix.s, table.len, table.s);
+					user.len, user.s, prefix.len, prefix.s, table.len, table.s);
 			ret = MARK_BLOCKLIST;
 		}
 	} else {
-		LM_DBG("user %.*s, prefix %.*s not found in table %.*s\n",
-			user.len, user.s, prefix.len, prefix.s, table.len, table.s);
-	}
-
-
-	/* Create new node and add it to the reply roots's kids */
-	if(!(crt_node = add_mi_node_child(&tmp->node, MI_DUP_NAME,
-			prefix.s, prefix.len, 0, 0)) ) {
-		LM_ERR("cannot add the child node to the tree\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
+		LM_DBG("user %.*s, prefix %.*s not found in table %.*s\n", user.len,
+				user.s, prefix.len, prefix.s, table.len, table.s);
 	}
 
 	/* Resolve the value of the attribute to be returned */
 	val.s = FALSE_S;
 	val.len = FALSE_LEN;
 
-	switch (list_type) {
+	switch(list_type) {
 		case MARK_ALLOWLIST:
-			attr.s = ALLOWLISTED_S;
-			attr.len = ALLOWLISTED_LEN;
-
-			if (ret == MARK_ALLOWLIST) {
+			if(ret == MARK_ALLOWLIST) {
 				val.s = TRUE_S;
 				val.len = TRUE_LEN;
 			}
 
+			rpc->struct_add(out, "SSSS", "prefix", &prefix, "user", &user,
+					"domain", &domain, ALLOWLISTED_S, &val);
 			break;
+
 		case MARK_BLOCKLIST:
-			attr.s = BLOCKLISTED_S;
-			attr.len = BLOCKLISTED_LEN;
-
-			if (ret == MARK_BLOCKLIST) {
+			if(ret == MARK_BLOCKLIST) {
 				val.s = TRUE_S;
 				val.len = TRUE_LEN;
 			}
 
+			rpc->struct_add(out, "SSSS", "prefix", &prefix, "user", &user,
+					"domain", &domain, BLOCKLISTED_S, &val);
 			break;
+
 		default:
 			LM_ERR("list_type not found\n");
-			return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
+			goto error;
 	}
 
-	/* Add the attribute to the current node */
-	if (!(crt_attr = add_mi_attr(crt_node, MI_DUP_VALUE,
-			attr.s, attr.len, val.s, val.len))) {
-		LM_ERR("cannot add attribute to the node\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
-	}
+	return;
 
-	return tmp;
+error_scan:
+	rpc->fault(ctx, 500,
+			"Check failed: 2 or 3 arguments needed (\"prefix\" \"user\" "
+			"\"domain\"(optional))");
+	return;
+error_prefix:
+	rpc->fault(ctx, 400, "Check failed: prefix exceeds %d characters",
+			MAXNUMBERLEN);
+	return;
+
+error:
+	rpc->fault(ctx, 500, "Check failed");
+	return;
 }
 
-
-struct mi_root * mi_reload_blocklist(struct mi_root* cmd, void* param)
-{
-	struct mi_root * tmp = NULL;
-	if(reload_sources() == 0) {
-		tmp = init_mi_tree( 200, MI_OK_S, MI_OK_LEN);
-	} else {
-		tmp = init_mi_tree( 500, "cannot reload blocklist", 21);
-	}
-
-	return tmp;
-}
-
-
-struct mi_root * mi_dump_blocklist(struct mi_root* cmd, void* param)
-{
-	char prefix_buff[MAXNUMBERLEN + 1];
-	int length = 0;
-	struct mi_root *tmp = NULL;
-
-	/* Check that global blocklist exists */
-	if (!gnode) {
-		LM_ERR("the global blocklist is NULL\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
-	}
-
-	tmp = init_mi_tree(200, MI_OK_S, MI_OK_LEN);
-	if (!tmp) {
-		LM_ERR("the MI tree cannot be initialized!\n");
-		return init_mi_tree(500, MI_INTERNAL_ERR_S, MI_INTERNAL_ERR_LEN);
-	}
-
-	dump_dtrie_mi(gnode, match_mode, prefix_buff, &length, tmp);
-
-	return tmp;
-}
-
-
-struct mi_root * mi_check_blocklist(struct mi_root* cmd, void* param)
-{
-	return check_list_mi(cmd, MARK_BLOCKLIST);
-}
-
-
-struct mi_root * mi_check_allowlist(struct mi_root* cmd, void* param)
-{
-	return check_list_mi(cmd, MARK_ALLOWLIST);
-}
-
-
-struct mi_root * mi_check_userblocklist(struct mi_root* cmd, void* param)
-{
-	return check_userlist_mi(cmd, MARK_BLOCKLIST);
-}
-
-
-struct mi_root * mi_check_userallowlist(struct mi_root* cmd, void* param)
-{
-	return check_userlist_mi(cmd, MARK_ALLOWLIST);
-}
-#endif
-
-static void ubl_rpc_reload_blocklist(rpc_t* rpc, void* ctx)
+static void ubl_rpc_reload_blocklist(rpc_t *rpc, void *ctx)
 {
 	if(reload_sources() != 0) {
 		rpc->fault(ctx, 500, "Reload failed");
 		return;
 	}
+
+	rpc->add(ctx, "s", "200 ok");
+	return;
 }
 
-static const char* ubl_rpc_reload_blocklist_doc[2] = {
-	"Reload user blocklist records.",
-	0
-};
+static void ubl_rpc_dump_blocklist(rpc_t *rpc, void *ctx)
+{
+	return dump_blocklist_rpc(rpc, ctx);
+}
+
+static void ubl_rpc_check_blocklist(rpc_t *rpc, void *ctx)
+{
+	return check_list_rpc(rpc, ctx, MARK_BLOCKLIST);
+}
+
+
+static void ubl_rpc_check_allowlist(rpc_t *rpc, void *ctx)
+{
+	return check_list_rpc(rpc, ctx, MARK_ALLOWLIST);
+}
+
+
+static void ubl_rpc_check_userblocklist(rpc_t *rpc, void *ctx)
+{
+	return check_userlist_rpc(rpc, ctx, MARK_BLOCKLIST);
+}
+
+
+static void ubl_rpc_check_userallowlist(rpc_t *rpc, void *ctx)
+{
+	return check_userlist_rpc(rpc, ctx, MARK_ALLOWLIST);
+}
+
+static const char *ubl_rpc_reload_blocklist_doc[2] = {
+		"Reload user blocklist records.", 0};
+
+static const char *ubl_rpc_dump_blocklist_doc[2] = {
+		"Dump user blocklist records.", 0};
+
+static const char *ubl_rpc_check_blocklist_doc[2] = {
+		"Check blocklist records.", 0};
+
+static const char *ubl_rpc_check_allowlist_doc[2] = {
+		"Check allowlist records.", 0};
+
+static const char *ubl_rpc_check_userblocklist_doc[2] = {
+		"Check user blocklist records.", 0};
+
+static const char *ubl_rpc_check_userallowlist_doc[2] = {
+		"Check user allowlist records.", 0};
 
 rpc_export_t ubl_rpc[] = {
-	{"userblocklist.reload_blocklist", ubl_rpc_reload_blocklist,
-		ubl_rpc_reload_blocklist_doc, 0},
-	{0, 0, 0, 0}
-};
+		{"userblocklist.reload_blocklist", ubl_rpc_reload_blocklist,
+				ubl_rpc_reload_blocklist_doc, 0},
+		{"userblocklist.dump_blocklist", ubl_rpc_dump_blocklist,
+				ubl_rpc_dump_blocklist_doc, 0},
+		{"userblocklist.check_blocklist", ubl_rpc_check_blocklist,
+				ubl_rpc_check_blocklist_doc, 0},
+		{"userblocklist.check_allowlist", ubl_rpc_check_allowlist,
+				ubl_rpc_check_allowlist_doc, 0},
+		{"userblocklist.check_userblocklist", ubl_rpc_check_userblocklist,
+				ubl_rpc_check_userblocklist_doc, 0},
+		{"userblocklist.check_userallowlist", ubl_rpc_check_userallowlist,
+				ubl_rpc_check_userallowlist_doc, 0},
+		{0, 0, 0, 0}};
 
 static int ubl_rpc_init(void)
 {
-	if (rpc_register_array(ubl_rpc)!=0)
-	{
+	if(rpc_register_array(ubl_rpc) != 0) {
 		LM_ERR("failed to register RPC commands\n");
 		return -1;
 	}
@@ -1284,17 +1259,21 @@ static int ubl_rpc_init(void)
 
 static int mod_init(void)
 {
-	if (ubl_rpc_init()<0) return -1;
-	if (userblocklist_db_init() != 0) return -1;
-	if (init_shmlock() != 0) return -1;
-	if (init_source_list() != 0) return -1;
+	if(ubl_rpc_init() < 0)
+		return -1;
+	if(userblocklist_db_init() != 0)
+		return -1;
+	if(init_shmlock() != 0)
+		return -1;
+	if(init_source_list() != 0)
+		return -1;
 	return 0;
 }
 
 
 static int child_init(int rank)
 {
-	if (rank==PROC_INIT || rank==PROC_MAIN || rank==PROC_TCP_MAIN)
+	if(rank == PROC_INIT || rank == PROC_MAIN || rank == PROC_TCP_MAIN)
 		return 0; /* do nothing for the main process */
 
 	return rpc_child_init();
@@ -1308,20 +1287,22 @@ static int rpc_child_init(void)
 	/* user blocklist init */
 	if(userblocklist_child_initialized)
 		return 0;
-	if (userblocklist_db_open() != 0) return -1;
-	dtrie_root=dtrie_init(match_mode);
-	if (dtrie_root == NULL) {
+	if(userblocklist_db_open() != 0)
+		return -1;
+	dtrie_root = dtrie_init(match_mode);
+	if(dtrie_root == NULL) {
 		LM_ERR("could not initialize data");
 		return -1;
 	}
 
 	/* global blocklist init */
-	if (check_globalblocklist_fixup(NULL, 0) != 0) {
+	if(check_globalblocklist_fixup(NULL, 0) != 0) {
 		LM_ERR("could not add global table when init the module");
 	}
 
 	/* because we've added new sources during the fixup */
-	if (reload_sources() != 0) return -1;
+	if(reload_sources() != 0)
+		return -1;
 
 	userblocklist_child_initialized = 1;
 	blocklist_child_initialized = 1;
@@ -1332,10 +1313,6 @@ static int rpc_child_init(void)
 
 static void mod_destroy(void)
 {
-	destroy_source_list();
-	destroy_shmlock();
-	userblocklist_db_close();
-	dtrie_destroy(&dtrie_root, NULL, match_mode);
 }
 
 /**

@@ -1,12 +1,14 @@
 /*
  * $Id$
  *
- * Functions that process REGISTER message 
+ * Functions that process REGISTER message
  * and store data in usrloc
  *
  * Copyright (C) 2010 Daniel-Constantin Mierla (asipto.com)
  *
  * This file is part of Kamailio, a free SIP server.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,8 +20,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License 
- * along with this program; if not, write to the Free Software 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
@@ -32,6 +34,7 @@
 #include "lookup.h"
 #include "save.h"
 #include "api.h"
+#include "userdata_parser.h"
 
 /**
  *
@@ -81,15 +84,16 @@
 ///**
 // *
 // */
-//int bind_registrar(registrar_api_t* api)
-//{
-//	if (!api) {
-//		ERR("Invalid parameter value\n");
-//		return -1;
-//	}
-//	api->save   = regapi_save;
-//	api->lookup = regapi_lookup;
-//	api->registered = regapi_registered;
-//
-//	return 0;
-//}
+int bind_registrar(registrar_api_t *api)
+{
+	if(!api) {
+		ERR("Invalid parameter value\n");
+		return -1;
+	}
+	//	api->save   = regapi_save;
+	//	api->lookup = regapi_lookup;
+	//	api->registered = regapi_registered;
+	api->update_contacts = update_contacts;
+	api->parse_user_data = parse_user_data;
+	return 0;
+}

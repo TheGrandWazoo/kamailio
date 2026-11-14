@@ -4,6 +4,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -46,7 +48,7 @@ typedef struct _ds_cell {
 typedef struct _ds_entry {
 	unsigned int esize;
 	ds_cell_t *first;
-	gen_lock_t lock;	
+	gen_lock_t lock;
 } ds_entry_t;
 
 typedef struct _ds_ht {
@@ -61,6 +63,8 @@ typedef struct _ds_ht {
 ds_ht_t *ds_ht_init(unsigned int htsize, int expire, int initexpire);
 int ds_ht_destroy(ds_ht_t *dsht);
 int ds_add_cell(ds_ht_t *dsht, str *cid, str *did, int dset);
+int ds_add_cell_ex(ds_ht_t *dsht, str *cid, str *did, int dset, int state,
+		unsigned int expire, unsigned int initexpire);
 int ds_del_cell(ds_ht_t *dsht, str *cid);
 ds_cell_t *ds_get_cell(ds_ht_t *dsht, str *cid);
 int ds_unlock_cell(ds_ht_t *dsht, str *cid);

@@ -10,7 +10,9 @@ NAME=tlsa.so
 
 # set to yes when wanting to link with static libraries compiled from source
 LIBSSL_STATIC_SRCLIB ?= no
-# set to the path of the folder with static libraries compiled from source
+# set to the path of the folder with static libraries compiled from source;
+# can also be the folder where static OpenSSL libraries are installed
+# in which case headers are expected to be in $LIBSSL_STATIC_SRCPATH/../include
 LIBSSL_STATIC_SRCPATH ?= /usr/local/src/openssl
 # or set to the path where the static libraries are installed, for example:
 # LIBSSL_STATIC_SRCPATH ?= /usr/lib/x86_64-linux-gnu/
@@ -39,13 +41,19 @@ ifneq ($(CRYPTO_BUILDER),)
 	LIBS += $(shell $(CRYPTO_BUILDER) --libs-only-L)
 endif # ifneq ($(CRYPTO_BUILDER),)
 
-	LIBS += -l:libssl.a -l:libcrypto.a -l:libz.a -l:libdl.a
+	LIBS += -l:libssl.a -l:libcrypto.a -l:libz.a -ldl
 	# TODO: explore use of LIBS += -Wl,-Bstatic $(shell $(SSL_BUILDER) --libs-only-l)
 
 else
 	## when linking against static libs compiled from sources
-	DEFS += -I$(LIBSSL_STATIC_SRCPATH)/include
-	LIBS += $(LIBSSL_STATIC_SRCPATH)/libssl.a $(LIBSSL_STATIC_SRCPATH)/libcrypto.a
+	## default OpenSSL installation has lib/,lib64/ as siblings of include/
+	ifneq "$(wildcard $(LIBSSL_STATIC_SRCPATH)/../include )" ""
+		DEFS += -I$(LIBSSL_STATIC_SRCPATH)/../include
+	else
+		DEFS += -I$(LIBSSL_STATIC_SRCPATH)/include
+	endif
+	LIBS += $(LIBSSL_STATIC_SRCPATH)/libssl.a $(LIBSSL_STATIC_SRCPATH)/libcrypto.a \
+			 -l:libz.a -ldl
 endif # ifneq ($(LIBSSL_STATIC_SRCLIB),yes)
 
 else # ifneq ($(SSL_BUILDER),)
@@ -53,7 +61,7 @@ else # ifneq ($(SSL_BUILDER),)
 	DEFS += -I$(LOCALBASE)/ssl/include
 	LIBS += -L$(LOCALBASE)/lib -L$(LOCALBASE)/ssl/lib \
 			-L$(LOCALBASE)/lib64 -L$(LOCALBASE)/ssl/lib64 \
-			-l:libssl.a -l:libcrypto.a -l:libz.a -l:libdl.a
+			-l:libssl.a -l:libcrypto.a -l:libz.a -ldl
 endif # ifneq ($(SSL_BUILDER),)
 
 include ../../Makefile.modules

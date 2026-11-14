@@ -21,6 +21,18 @@
 	<itemizedlist>
 			<listitem>
 				<para>
+				<emphasis>TLSv1.3+</emphasis> - TLSv1.3 or newer (TLSv1.3, ...)
+				connections are accepted (available starting with openssl/libssl v1.1.1)
+				</para>
+			</listitem>
+			<listitem>
+				<para>
+				<emphasis>TLSv1.3</emphasis> - only TLSv1.3 connections are accepted
+				(available starting with openssl/libssl v1.1.1)
+				</para>
+			</listitem>
+			<listitem>
+				<para>
 				<emphasis>TLSv1.2+</emphasis> - TLSv1.2 or newer (TLSv1.3, ...)
 				connections are accepted (available starting with openssl/libssl v1.1.1)
 				</para>
@@ -28,19 +40,19 @@
 			<listitem>
 				<para>
 				<emphasis>TLSv1.2</emphasis> - only TLSv1.2 connections are accepted
-				(available starting with openssl/libssl v1.0.1e)
+				
 				</para>
 			</listitem>
 			<listitem>
 				<para>
 				<emphasis>TLSv1.1+</emphasis> - TLSv1.1 or newer (TLSv1.2, ...)
-				connections are accepted (available starting with openssl/libssl v1.0.1)
+				connections are accepted
 				</para>
 			</listitem>
 			<listitem>
 				<para>
 				<emphasis>TLSv1.1</emphasis> - only TLSv1.1 connections are accepted
-				(available starting with openssl/libssl v1.0.1)
+				
 				</para>
 			</listitem>
 			<listitem>
@@ -57,45 +69,19 @@
 			</listitem>
 			<listitem>
 				<para>
-				<emphasis>SSLv3</emphasis> - only SSLv3 connections are accepted.
-				Note: you shouldn't use SSLv3 for anything which should be secure.
-				</para>
-			</listitem>
-			<listitem>
-				<para>
-				<emphasis>SSLv2</emphasis> - only SSLv2 connections, for old clients.
-				Note: you shouldn't use SSLv2 for anything which should be secure.
-				Newer versions of OpenSSL libraries don't include support for it anymore.
-				</para>
-			</listitem>
-			<listitem>
-				<para>
-				<emphasis>SSLv23</emphasis> - any of the SSLv2, SSLv3 and TLSv1 or
-				newer methods will be accepted.
-				</para>
-				<para>
-				From the OpenSSL manual: "A TLS/SSL connection established with these
-				methods may understand the SSLv3, TLSv1, TLSv1.1 and TLSv1.2 protocols.
-				If extensions are required (for example server name) a client will
-				send out TLSv1 client hello messages including extensions and will
-				indicate that it also understands TLSv1.1, TLSv1.2 and permits a
-				fallback to SSLv3. A server will support SSLv3, TLSv1, TLSv1.1
-				and TLSv1.2 protocols. This is the best choice when compatibility
-				is a concern."
-				</para>
-				<para>
-				Note: For older OpenSSL library versions, this option allows SSLv2, with hello
-				messages done over SSLv2. You shouldn't use SSLv2 or SSLv3 for anything
-				which should be secure.
+				<emphasis>SSLv23</emphasis> - any TLS version supported by the
+				OpenSSL library (TLS_method()).
 				</para>
 			</listitem>
 	</itemizedlist>
 	<para>
 		If RFC 3261 conformance is desired, at least TLSv1 must be used. For
 		compatibility with older clients SSLv23 is the option, but again, be aware
-		of security concerns, SSLv2/3 being considered very insecure by 2014.
+		of security concerns, TLS v1.0 and v1.1 are being considered very insecure
+		and are therefore deprecated since March 2021 (RFC 8996). SSLv2 and SSLv3
+		are not supported.
 		For current information about what's considered secure, please consult,
-		IETF BCP 195, currently RFC 7525  - "Recommendations for Secure Use of 
+		IETF BCP 195, currently RFC 9325  - "Recommendations for Secure Use of
 		Transport Layer Security (TLS) and Datagram Transport Layer Security (DTLS)"
 	</para>
 	<example>
@@ -113,6 +99,14 @@ modparam("tls", "tls_method", "TLSv1")
 	<para>
 		Sets the certificate file name. The certificate file can also contain
 		the private key in PEM format.
+	</para>
+	<para>
+		A value starting with <varname>/engine:</varname> (OpenSSL 1.1.1 ENGINE) or
+		<varname>/uri:</varname> (OpenSSL 3 provider, e.g.
+		<varname>/uri:pkcs11:token=MYTOKEN;object=MYKEY;type=private</varname>)
+		selects a key held by an engine or provider (HSM). Such keys require
+		tcp_main_threads = 1 or 2; with tcp_main_threads = 0 the module refuses
+		to start.
 	</para>
 	<para>
 		If the file name starts with a '.' the path will be relative to the
@@ -166,6 +160,116 @@ modparam("tls", "private_key", "/usr/local/etc/kamailio/my_pkey.pem")
 	</example>
 	</section>
 
+	<section id="tls.p.private_key_password">
+	<title><varname>private_key_password</varname> (string)</title>
+	<para>
+		The password for the private key.
+	</para>
+	<para>
+		The default value is empty.
+	</para>
+	<example>
+	    <title>Set <varname>private_key_password</varname> parameter</title>
+	    <programlisting>
+...
+modparam("tls", "private_key_password", "secret")
+...
+	    </programlisting>
+	</example>
+	</section>
+
+	<section id="tls.p.certificate2">
+	<title><varname>certificate2</varname> (string)</title>
+	<para>
+		Sets the file name for a second certificate, enabling dual-cert
+		support. This is typically used to configure both an RSA and an
+		ECDSA certificate for the same TLS domain. OpenSSL will
+		automatically select the appropriate certificate during the TLS
+		handshake based on the client's advertised signature algorithms.
+	</para>
+	<para>
+		The path resolution rules are the same as for
+		<varname>certificate</varname>.
+	</para>
+	<para>
+		The parameter is optional. When not set, the TLS domain serves
+		only the certificate configured via <varname>certificate</varname>.
+		It does not inherit from the parent domain.
+	</para>
+	<para>
+		The default value is empty (not set).
+	</para>
+	<example>
+	    <title>Set <varname>certificate2</varname> parameter</title>
+	    <programlisting>
+...
+modparam("tls", "certificate2", "/usr/local/etc/kamailio/my_ecdsa_cert.pem")
+...
+	    </programlisting>
+	</example>
+	</section>
+
+	<section id="tls.p.private_key2">
+	<title><varname>private_key2</varname> (string)</title>
+	<para>
+		Sets the file name for the private key corresponding to the
+		second certificate (<varname>certificate2</varname>).
+	</para>
+	<para>
+		The path resolution rules are the same as for
+		<varname>private_key</varname>.
+	</para>
+	<para>
+		The default value is empty (not set).
+	</para>
+	<example>
+	    <title>Set <varname>private_key2</varname> parameter</title>
+	    <programlisting>
+...
+modparam("tls", "private_key2", "/usr/local/etc/kamailio/my_ecdsa_pkey.pem")
+...
+	    </programlisting>
+	</example>
+	</section>
+
+	<section id="tls.p.private_key_password2">
+	<title><varname>private_key_password2</varname> (string)</title>
+	<para>
+		The password for the second private key
+		(<varname>private_key2</varname>).
+	</para>
+	<para>
+		The default value is empty.
+	</para>
+	<example>
+	    <title>Set <varname>private_key_password2</varname> parameter</title>
+	    <programlisting>
+...
+modparam("tls", "private_key_password2", "secret")
+...
+	    </programlisting>
+	</example>
+	</section>
+
+	<section id="tls.p.key_password_mode">
+	<title><varname>key_password_mode</varname> (int)</title>
+	<para>
+		The mode to get the password for the private key. If 0, take it
+		from the config "private_key_password". If 1, promt for it at start up.
+	</para>
+	<para>
+		The default value is 0.
+	</para>
+	<example>
+	    <title>Set <varname>key_password_mode</varname> parameter</title>
+	    <programlisting>
+...
+modparam("tls", "key_password_mode", 0)
+...
+	    </programlisting>
+	</example>
+	</section>
+
 	<section id="tls.p.ca_list">
 	<title><varname>ca_list</varname> (string)</title>
 	<para>
@@ -188,7 +292,7 @@ modparam("tls", "private_key", "/usr/local/etc/kamailio/my_pkey.pem")
 		An easy way to create the CA list is to append each trusted trusted CA
 		certificate in the PEM format to one file, e.g.:
 	    <programlisting>
-for f in trusted_cas/*.pem ; do cat "$f" &gt;&gt; ca_list.pem ; done 
+for f in trusted_cas/*.pem ; do cat "$f" &gt;&gt; ca_list.pem ; done
 	    </programlisting>
 	</para>
 	<para>
@@ -307,7 +411,7 @@ modparam("tls", "crl", "/usr/local/etc/kamailio/crl.pem")
 <section id="tls.p.verify_certificate">
 	<title><varname>verify_certificate</varname> (boolean)</title>
 	<para>
-		If enabled it will force certificate verification when connecting to 
+		If enabled it will force certificate verification when connecting to
 		other SIP servers..
 		For more information see the
 		<ulink url="https://www.openssl.org/docs/manmaster/man1/verify.html">verify(1)</ulink>
@@ -455,15 +559,16 @@ modparam("tls", "connection_timeout", 60)
 	<title><varname>tls_disable_compression</varname> (boolean)</title>
 	<para>
 		If set compression over TLS will be disabled.
-		Note that compression uses a lot of memory (about 10x more then with
+		Note that compression uses a lot of memory (about 10x more than with
 		the compression disabled), so if you want to minimize
-		memory usage is a good idea to disable it. TLS compression also 
-		expose you for the 
+		memory usage is a good idea to disable it. TLS compression also
+		expose you for the
  		<ulink url="https://en.wikipedia.org/wiki/CRIME_(security_exploit)">
 		CRIME</ulink> security vulnerability.
 	</para>
 	<para>
-		By default TLS compression is disabled.
+		By default TLS compression is disabled. OpenSSL 1.1.0 and newer
+		disable compression by default: the value has no effect.
 	</para>
 	<example>
 	    <title>Set <varname>tls_disable_compression</varname> parameter</title>
@@ -494,14 +599,6 @@ modparam("tls", "tls_disable_compression", 0) # enable
 	<para>
 		By default the value is 1 (enabled).
 	</para>
-	<note>
-		<para>
-			This option is supported only for
-			OpenSSL versions >= <emphasis>1.0.0</emphasis>.
-			On all the other versions attempting
-			to change the default will trigger an error.
-		</para>
-	</note>
 	<example>
 	    <title>Set <varname>ssl_release_buffers</varname> parameter</title>
 	    <programlisting>
@@ -523,21 +620,9 @@ modparam("tls", "ssl_release_buffers", 1)
 		Should be combined with <varname>ssl_release_buffers</varname>.
 	</para>
 	<para>
-		A value of -1 has a special meaning: the OpenSSL default will be used
-		(no attempt on changing the value will be made). For OpenSSL 1.0
-		the internal default is 32.
+		OpenSSL 1.1.0 and newer have no freelists: the value is
+		accepted and has no effect.
 	</para>
-	<para>
-		By default the value is 0 (no freelist).
-	</para>
-	<note>
-		<para>
-			This option is supported only for
-			OpenSSL versions >= <emphasis>1.0.0</emphasis>.
-			On all the other versions attempting
-			to change the default will trigger an error.
-		</para>
-	</note>
 	<example>
 		<title>Set <varname>ssl_freelist_max_len</varname> parameter</title>
 		<programlisting>
@@ -556,9 +641,9 @@ modparam("tls", "ssl_freelist_max_len", 0)
 		allow a successful handshake (try minimum 1024).
 	</para>
 	<para>
-		Lower values would lead to less memory usage, but values lower then
+		Lower values would lead to less memory usage, but values lower than
 		the typical &kamailio; write size would incur a slight performance
-		penalty. Good values are bigger then the  size of the biggest
+		penalty. Good values are bigger than the size of the biggest
 		SIP packet one normally expects to forward. For example in most
 		setups 2048 would be a good value.
 	</para>
@@ -567,7 +652,7 @@ modparam("tls", "ssl_freelist_max_len", 0)
 			Values on the lower side, even if valid (> 512), might not allow
 			for a successful initial handshake. This happens if the
 			certificate does not fit inside one send fragment.
-			Values lower then 1024 should not be used.
+			Values lower than 1024 should not be used.
 			Even with higher values, if the handshake fails,
 			try increasing the value.
 		</para>
@@ -577,17 +662,8 @@ modparam("tls", "ssl_freelist_max_len", 0)
 		(no attempt on changing the value will be made).
 	</para>
 	<para>
-		By default the value is -1 (the OpenSSL default, which at least in
-		OpenSSL 1.0.0 is ~ 16k).
+		By default the value is -1 (the OpenSSL default, 16k).
 	</para>
-	<note>
-		<para>
-			This option is supported only for
-			OpenSSL versions >= <emphasis>0.9.9</emphasis>.
-			On all the other versions attempting
-			to change the default will trigger an error.
-		</para>
-	</note>
 	<example>
 		<title>Set <varname>ssl_max_send_fragment</varname> parameter</title>
 		<programlisting>
@@ -819,114 +895,6 @@ modparam("tls", "tls_debug", 10)
 	</section>
 
 
-<section id="tls.p.low_mem_threshold1">
-	<title><varname>low_mem_threshold1</varname> (integer)</title>
-	<para>
-		Sets the minimal free memory from which attempts to open or accept
-		new TLS connections will start to fail. The value is expressed in KB.
-	</para>
-	<para>
-		The default value depends on whether the OpenSSL library used handles 
-		low memory situations in a good way (openssl bug #1491).
-		As of this writing this is not true for any OpenSSL version (including 0.9.8e).
-	</para>
-	<para>
-		If an ill-behaved OpenSSL version is detected, a very conservative value is chosen,
-		which depends on the maximum possible number of simultaneously created TLS connections
-		(and hence on the process number).
-	</para>
-	<para>
-		The following values have a special meaning:
-	</para>
-	<itemizedlist>
-			<listitem>
-				<para>
-					-1 - use the default value
-				</para>
-			</listitem>
-			<listitem>
-				<para>
-					0 - disable (TLS connections will not fail preemptively)
-				</para>
-			</listitem>
-	</itemizedlist>
-	<para>
-		It can be changed also at runtime, via the RPC interface and config
-		framework. The config variable name is <varname>tls.low_mem_threshold1</varname>.
-	</para>
-	<para>
-		See also <varname>tls.low_mem_threshold2</varname>.
-	</para>
-	<example>
-		<title>Set <varname>low_mem_threshold1</varname> parameter</title>
-		<programlisting>
-...
-modparam("tls", "low_mem_threshold1", -1)
-...
-	</programlisting>
-	</example>
-	<example>
-		<title>Set <varname>tls.low_mem_threshold1</varname> at runtime</title>
-		<programlisting>
- $ &sercmd; cfg.set_now_int tls low_mem_threshold1 2048
-		</programlisting>
-	</example>
-	</section>
-
-<section id="tls.p.low_mem_threshold2">
-	<title><varname>low_mem_threshold2</varname> (integer)</title>
-	<para>
-		Sets the minimal free memory from which TLS operations on already established
-		TLS connections will start to fail preemptively.  The value is expressed in KB.
-	</para>
-	<para>
-		The default value depends on whether the OpenSSL library used handles low memory
-		situations (openssl bug #1491).
-		As of this writing this is not true for any OpenSSL version (including 0.9.8e).
-	</para>
-	<para>
-		If an ill-behaved OpenSSL version is detected, a very conservative value is chosen,
-		which depends on the maximum possible number of simultaneously created
-		TLS connections (and hence on the process number).
-	</para>
-	<para>
-		The following values have a special meaning:
-	</para>
-	<itemizedlist>
-			<listitem>
-				<para>
-					-1 - use the default value
-				</para>
-			</listitem>
-			<listitem>
-				<para>
-					0 - disable (TLS operations will not fail preemptively)
-				</para>
-			</listitem>
-	</itemizedlist>
-	<para>
-		It can be changed also at runtime, via the RPC interface and config
-		framework. The config variable name is <varname>tls.low_mem_threshold2</varname>.
-	</para>
-	<para>
-		See also <varname>tls.low_mem_threshold1</varname>.
-	</para>
-	<example>
-		<title>Set <varname>tls.low_mem_threshold2</varname> parameter</title>
-		<programlisting>
-...
-modparam("tls", "low_mem_threshold2", -1)
-...
-	</programlisting>
-	</example>
-	<example>
-		<title>Set <varname>tls.low_mem_threshold2</varname> at runtime</title>
-		<programlisting>
- $ &sercmd; cfg.set_now_int tls low_mem_threshold2 1024
-		</programlisting>
-	</example>
-	</section>
-
 	<section id="tls.p.tls_force_run">
 	<title><varname>tls_force_run</varname> (boolean)</title>
 	<para>
@@ -940,13 +908,7 @@ modparam("tls", "low_mem_threshold2", -1)
 			<para>
 				the version of the library the TLS module was compiled with is
 				"too different" from the library used at runtime. The versions should have the same major,
-				minor and fix level (e.g.: 0.9.8a and 0.9.8c are ok, but 0.9.8 and 0.9.9 are not)
-			</para>
-		</listitem>
-		<listitem>
-			<para>
-				the OpenSSL library used at compile time and the one used at
-				runtime have different Kerberos options 
+				minor and fix level (e.g.: 1.1.1k and 1.1.1w are ok, but 1.1.1 and 3.0 are not)
 			</para>
 		</listitem>
 	</itemizedlist>
@@ -1020,6 +982,69 @@ modparam("tls", "renegotiation", 1)
 	</example>
 	</section>
 
+	<section id="tls.p.init_mode">
+	<title><varname>init_mode</varname> (int)</title>
+	<para>
+		Allow setting flags that control how the module is initialized and works
+		at runtime. Many flags (bits) can be set at the same time (set the
+		parameter to the sum of corresponding values). The flags are refered
+		with 0-indexing.
+	</para>
+	<para>
+		Flag (bit) at index 0 (value 1) has no effect; it is accepted for
+		compatibility.
+	</para>
+	<para>
+		If flag (bit) at index 1 is set (value 2), the module executes openssl fork
+		prepare API functions (see
+		<ulink url="https://www.openssl.org/docs/man1.1.1/man3/OPENSSL_fork_prepare.html">https://www.openssl.org/docs/man1.1.1/man3/OPENSSL_fork_prepare.html</ulink>).
+	</para>
+	<para>
+		Default value is 0.
+	</para>
+	<example>
+		<title>Set <varname>init_mode</varname> parameter</title>
+		<programlisting>
+...
+modparam("tls", "init_mode", 2)
+...
+	</programlisting>
+	</example>
+	</section>
+
+	<section id="tls.p.use_shared_context">
+	<title><varname>use_shared_context</varname> (int)</title>
+	<para>
+		With tcp_main_threads=0 (multi-process TLS), the module creates one
+		SSL_CTX per TLS domain in every process: OpenSSL keeps RSA blinding
+		state per thread and tells threads apart by pthread_self(), and the
+		forked processes share that value. Each tls.reload builds and parses
+		the domains (certificates, CA list, CRL) once per process.
+	</para>
+	<para>
+		If set to 1, the module creates one SSL_CTX per TLS domain for all
+		processes. Kamailio then returns a per-process value of pthread_self()
+		to libcrypto, so OpenSSL serializes the RSA blinding of a key used in
+		several processes. This reduces the shared memory and the time of
+		tls.reload by the number of processes.
+	</para>
+	<para>
+		With tcp_main_threads=1 or 2 there is one SSL_CTX per domain and the
+		parameter has no effect.
+	</para>
+	<para>
+		Default value is 0.
+	</para>
+	<example>
+		<title>Set <varname>use_shared_context</varname> parameter</title>
+		<programlisting>
+...
+modparam("tls", "use_shared_context", 1)
+...
+	</programlisting>
+	</example>
+	</section>
+
 	<section id="tls.p.config">
 	<title><varname>config</varname> (string)</title>
 	<para>
@@ -1059,6 +1084,8 @@ modparam("tls", "renegotiation", 1)
 			<listitem><para>server_name - (str) - SNI (server name identification)</para></listitem>
 			<listitem><para>server_name_mode - (int) - how to match server_name</para></listitem>
 			<listitem><para>server_id - (str) - server id</para></listitem>
+			<listitem><para>verify_server_name - (bool) - client profiles: check
+			the name of the server certificate</para></listitem>
 	</itemizedlist>
 	<para>
 		The value for server_name_mode specifies how to match the server_name
@@ -1073,6 +1100,31 @@ modparam("tls", "renegotiation", 1)
 		TLS client config profile, because the local or remote port is hard
 		to predict for a stream connection - see parameter
 		<varname>xavp_cfg</varname> to learn how to enable it.
+	</para>
+	<para>
+		The value for verify_server_name is used only by client profiles
+		that also have verify_certificate enabled (default: off). When it is
+		on, the server certificate must match the server name of the
+		connection: the server_name of the <varname>xavp_cfg</varname>
+		attributes if set (also sent as SNI), else the server_name of the
+		profile. A DNS name is matched against the Subject Alternative Name
+		DNS entries, else the Common Name (RFC 6125, no partial wildcards).
+		An IP address is matched against the Subject Alternative Name IP
+		entries only. The check is done by OpenSSL during the TLS handshake,
+		so a mismatch fails the connection before any SIP message is sent.
+		If no server name is available, the connection fails. A warning is
+		printed at load time for a server profile or a client profile without
+		verify_certificate, where the attribute is ignored;
+		require_certificate alone does not enable it. On a client profile
+		with verify_client set to optional_no_ca, any certificate is
+		accepted, so a name mismatch is accepted too.
+	</para>
+	<para>
+		The check is done once, when the connection is established. An
+		existing connection to the same address and port can be reused for
+		later requests to a different server name, without a new check.
+		Setting the core parameter <varname>tls_connection_match_domain</varname>
+		with one client profile per server name avoids this reuse.
 	</para>
 	<para>
 		All the parameters that take filenames as values will be resolved
@@ -1148,6 +1200,7 @@ ca_list = default_ca.pem
 crl = default_crl.pem
 server_name = kamailio.org
 server_id = kamailio.org
+verify_server_name = yes
 
 # server profile on any address
 [server:any]
@@ -1164,7 +1217,7 @@ server_name_mode = 1
 	</programlisting>
 	</example>
 	<para>
-		For a more complete example check the <emphasis>tls.cfg</emphasis> distributed 
+		For a more complete example check the <emphasis>tls.cfg</emphasis> distributed
 		with the &kamailio; source (kamailio/modules/tls/tls.cfg).
 	</para>
 	<example>
@@ -1257,17 +1310,17 @@ end
 	<section id="tls.p.rand_engine">
 	<title><varname>rand_engine</varname> (str)</title>
 	<para>
-		Set the random number generator engine for libssl.
+		Set the random number generator engine for libssl. It applies only to
+		OpenSSL 1.1.1; with OpenSSL 3 and AWS-LC the value is ignored.
 	</para>
 	<para>
-		Note: the default random number generator (PRNG) engine of libssl v1.1.x
-		is not designed for multi-process applications and can result in a crash.
-		Therefore set the PRNG engine to one of the options listed in this
-		section. If libssl 1.1.x (or newer) is detected at compile time, then
-		the PRNG engine is set to "cryptorand".
+		Note: the default random number generator (PRNG) engine of OpenSSL 1.1.1
+		is not designed for multi-process applications and can result in a crash
+		with the core parameter tls_threads_mode set to 0. In that case the
+		PRNG engine is set to "cryptorand".
 	</para>
 	<para>
-		The following options are avaialble:
+		The following options are available:
 	</para>
 	<itemizedlist>
 		<listitem><para>krand - use internal kam_rand() function</para></listitem>
@@ -1281,8 +1334,8 @@ end
 		with enough randomness and are not cryptographically secure.
 	</para>
 	<para>
-		The default value is empty (not set) for libssl v1.0.x or older, and
-		"cryptorand" for libssl v1.1.x or newer.
+		The default value is empty (not set): the libssl default, or
+		"cryptorand" with OpenSSL 1.1.1 and tls_threads_mode set to 0.
 	</para>
 	<example>
 	    <title>Set <varname>rand_engine</varname> parameter</title>
@@ -1304,6 +1357,8 @@ modparam("tls", "rand_engine", "fastrand")
 
 	<para>
 	        To use private keys from the HSM, the name is the HSM key label prefixed by <varname>/engine:</varname>.
+	        The engine (offloaded algorithms and HSM keys) requires tcp_main_threads = 1 or 2;
+	        with tcp_main_threads = 0 the module refuses to start.
 	</para>
 		<programlisting format="linespecific">
 ...
@@ -1328,7 +1383,7 @@ modparam("tls", "engine_algorithms", "ALL")
 	<section id="tls.p.engine_config">
 	<title><varname>engine_config</varname> (string)</title>
 	<para>
-	        A OpenSSL configuration file to initialize the engine. Typically used to send PIN to HSMs to unlock
+	        An OpenSSL configuration file to initialize the engine. Typically used to send PIN to HSMs to unlock
 	        private keys. See the HSM howto for an example. This global param is not supported in the tls config file.
 	</para>
         </section>
@@ -1407,4 +1462,171 @@ verify_client = optional_no_ca
 		</programlisting>
 	</example>
 	</section>
+        <section id="tls.p.provider_quirks">
+            <title><varname>provider_quirks</varname> (integer)</title>
+            <para>
+              <emphasis>Deprecated, ignored since 6.2.</emphasis> Engine/provider keys require
+              tcp_main_threads = 1 or 2, where the provider is loaded once in PROC_TCP_MAIN; a value set
+              here logs a warning.
+            </para>
+            <para>
+              Up to 6.1: reload a provider in the child - needed in MP-mode (tcp_main_threads = 0) for some
+              providers. The configuration file for the provider is provided in the
+              <varname>provider_quirks_config</varname> parameter.
+            </para>
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis>0</emphasis> - no reload (default)</para>
+                </listitem>
+                <listitem>
+                  <para><emphasis>1</emphasis> - reloads a provider in a new library context
+                  in the child. pkcs11-provider is known to require this.
+                    </para>
+                </listitem>
+            </itemizedlist>
+	<example>
+		<title>Set <varname>provider_quirks</varname> modparam parameter</title>
+		<programlisting>
+...
+modparam("tls", "provider_quirks", 1)
+# 1: provider_quirks_config parameter must be set
+...
+		</programlisting>
+        </example>
+        </section>
+        <section id="tls.p.provider_quirks_config">
+            <title><varname>provider_quirks_config</varname> (string)</title>
+            <para>
+              <emphasis>Deprecated, ignored since 6.2</emphasis> (see <varname>provider_quirks</varname>).
+            </para>
+            <para>
+              Up to 6.1: a file name of a OpenSSL configuration snippet that contains the provider configuration.
+              The file must contain two mandatory keys: <varname>quirks_sect</varname> - section to load,
+              <varname>quirks_provider</varname> - the provider to load. </para>
+	<example>
+		<title>Set <varname>provider_quirks_config</varname> modparam parameter</title>
+		<programlisting>
+...
+modparam("tls", "provider_quirks_config", "/etc/kamailio/tls/pkcs11-provider.cnf")
+...
+		</programlisting>
+
+                <para>A provider example:
+		<programlisting>
+# /etc/kamailio/tls/pkcs11-provider.cnf
+quirks_sect = pkcs11_sect
+quirks_provider = pkcs11
+
+[pkcs11_sect]
+module = pkcs11.so
+pkcs11-module-path = /usr/lib64/libsoftokn3.so
+pkcs11-module-init-args = configDir=/etc/kamailio/certs/tokens
+pkcs11-module-token-pin = file:/etc/kamailio/certs/pinfile-softoken.txt
+pkcs11-module-quirks = no-deinit no-operation-state
+activate = 1
+		</programlisting>
+                </para>
+            </example>
+        </section>
+	<section id="tls.p.keylog_mode">
+	<title><varname>keylog_mode</varname> (int)</title>
+	<para>
+		Control the TLS key logging functionality. Its value is composed from bitwise values (can be
+		made as sum of them):
+	</para>
+	<itemizedlist>
+		<listitem>
+			<para><emphasis>0</emphasis> - keys logging not enabled</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>1 (bit 1)</emphasis> - initialise keys logging</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>2 (bit 2)</emphasis> - keys logging active</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>4 (bit 3)</emphasis> - write keys to NOTICE log</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>8 (bit 4)</emphasis> - write keys to file</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>16 (bit 5)</emphasis> - send keys to udp peer</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>32 (bit 6)</emphasis> - write before each key line a
+			comment line "# TUPLE src=IP:PORT dst=IP:PORT sr=HEX cs=HEX v=HEX"
+			with the TCP connection (peer on src, kamailio on dst; IPv6 as
+			[IP]:PORT), the server random, the cipher suite and the protocol
+			version. A tool decoding a capture that missed the TLS handshake needs
+			this data to match the keys to the connection and to derive the record
+			keys (TLS 1.2: server random and cipher suite, TLS 1.3: cipher suite).
+			It provides necessary data only: recovery is still a non-trivial step
+			and requires the external tool to perform a search for epoch and
+			sequence number.
+			</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>1024 (bit 11)</emphasis> - enable filtering of
+			keys logging. When set, filtering is done on: "CLIENT_RANDOM",
+			"CLIENT_HANDSHAKE_TRAFFIC_SECRET", "SERVER_HANDSHAKE_TRAFFIC_SECRET",
+			"EXPORTER_SECRET", "CLIENT_TRAFFIC_SECRET_0", "SERVER_TRAFFIC_SECRET_0"
+			</para>
+		</listitem>
+	</itemizedlist>
+	<para>
+		Bit position is the index starting from 1 (practically a non-zero value
+		is (2 power (bitpos - 1)) ).
+	</para>
+	<para>
+		The default value: 0.
+	</para>
+	<example>
+		<title>Set <varname>keylog_mode</varname> parameter</title>
+		<programlisting>
+...
+modparam("tls", "keylog_mode", 15)
+...
+	</programlisting>
+	</example>
+	</section>
+	<section id="tls.p.keylog_file">
+	<title><varname>keylog_file</varname> (str)</title>
+	<para>
+		Path to the file where to write the TLS keys. The values are appended
+		to the content of the file. The value 8 (bit 4) has to be set to
+		keylog_mode parameter.
+	</para>
+	<para>
+		The default value: NULL.
+	</para>
+	<example>
+		<title>Set <varname>keylog_file</varname> parameter</title>
+		<programlisting>
+...
+modparam("tls", "keylog_file", "/tmp/kamailio-tls-keylog.txt")
+...
+	</programlisting>
+	</example>
+	</section>
+	<section id="tls.p.keylog_peer">
+	<title><varname>keylog_peer</varname> (str)</title>
+	<para>
+		Address of the peer where to send the keys log. It has to be in the
+		format "proto:ip:port". Only "udp" protocol (proto) is supported.
+		The value 16 (bit 5) has to be set to keylog_mode parameter.
+	</para>
+	<para>
+		The default value: NULL.
+	</para>
+	<example>
+		<title>Set <varname>keylog_peer</varname> parameter</title>
+		<programlisting>
+...
+modparam("tls", "keylog_peer", "udp:127.0.0.1:8020")
+...
+	</programlisting>
+	</example>
+	</section>
+
  </section>

@@ -22,29 +22,26 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include "../../core/dprint.h"
 
 #include "ht_api.h"
-#include "api.h"
+#include "ht_db.h"
 #include "ht_dmq.h"
+#include "api.h"
 
 /**
  *
  */
-int ht_api_set_cell(str *hname, str *name, int type,
-		int_str *val, int mode)
+int ht_api_set_cell(str *hname, str *name, int type, int_str *val, int mode)
 {
-	ht_t* ht;
+	ht_t *ht;
 	ht = ht_get_table(hname);
-	if(ht==NULL)
+	if(ht == NULL)
 		return -1;
 
-	if (ht->dmqreplicate>0 && ht_dmq_replicate_action(HT_DMQ_SET_CELL, hname, name, type, val, mode)!=0) {
-		LM_ERR("dmq replication failed\n");
-	}
-
-	return ht_set_cell(ht, name, type, val, mode);
+	return ht_set_cell_and_replicate(ht, hname, name, type, val, mode, 0);
 }
 
 /**
@@ -52,11 +49,14 @@ int ht_api_set_cell(str *hname, str *name, int type,
  */
 int ht_api_del_cell(str *hname, str *name)
 {
-	ht_t* ht;
+	ht_t *ht;
 	ht = ht_get_table(hname);
-	if(ht==NULL)
+	if(ht == NULL)
 		return -1;
-	if (ht->dmqreplicate>0 && ht_dmq_replicate_action(HT_DMQ_DEL_CELL, hname, name, 0, NULL, 0)!=0) {
+	if(ht->dmqreplicate > 0
+			&& ht_dmq_replicate_action(
+					   HT_DMQ_DEL_CELL, hname, name, 0, NULL, 0, 0)
+					   != 0) {
 		LM_ERR("dmq replication failed\n");
 	}
 	return ht_del_cell(ht, name);
@@ -65,14 +65,50 @@ int ht_api_del_cell(str *hname, str *name)
 /**
  *
  */
-int ht_api_set_cell_expire(str *hname, str *name,
-		int type, int_str *val)
+int ht_api_add_cell_ival(
+		str *hname, str *name, int val, int initval, int *result)
 {
-	ht_t* ht;
+	ht_cell_t *htc;
+	ht_t *ht;
+
 	ht = ht_get_table(hname);
-	if(ht==NULL)
+	if(ht == NULL)
 		return -1;
-	if (ht->dmqreplicate>0 && ht_dmq_replicate_action(HT_DMQ_SET_CELL_EXPIRE, hname, name, type, val, 0)!=0) {
+	htc = ht_cell_value_add_init(ht, name, val, initval, NULL);
+	if(htc == NULL || (htc->flags & AVP_VAL_STR)) {
+		if(htc != NULL)
+			ht_cell_pkg_free(htc);
+		return -1;
+	}
+	if(htc->value.n < INT_MIN || htc->value.n > INT_MAX) {
+		ht_cell_pkg_free(htc);
+		return -1;
+	}
+	if(result != NULL)
+		*result = (int)htc->value.n;
+	if(ht->dmqreplicate > 0
+			&& ht_dmq_replicate_action(HT_DMQ_SET_CELL, hname, name, 0,
+					   &htc->value, 1, htc->last_modified)
+					   != 0) {
+		LM_ERR("dmq replication failed\n");
+	}
+	ht_cell_pkg_free(htc);
+	return 0;
+}
+
+/**
+ *
+ */
+int ht_api_set_cell_expire(str *hname, str *name, int type, int_str *val)
+{
+	ht_t *ht;
+	ht = ht_get_table(hname);
+	if(ht == NULL)
+		return -1;
+	if(ht->dmqreplicate > 0
+			&& ht_dmq_replicate_action(
+					   HT_DMQ_SET_CELL_EXPIRE, hname, name, type, val, 0, 0)
+					   != 0) {
 		LM_ERR("dmq replication failed\n");
 	}
 	return ht_set_cell_expire(ht, name, type, val);
@@ -81,27 +117,50 @@ int ht_api_set_cell_expire(str *hname, str *name,
 /**
  *
  */
-int ht_api_get_cell_expire(str *hname, str *name,
-		unsigned int *val)
+int ht_api_get_cell_expire(str *hname, str *name, unsigned int *val)
 {
-	ht_t* ht;
+	ht_t *ht;
 	ht = ht_get_table(hname);
-	if(ht==NULL)
+	if(ht == NULL)
 		return -1;
 	return ht_get_cell_expire(ht, name, val);
+}
+
+/**
+ *
+ */
+int ht_api_refresh_cell_expire(str *hname, str *name)
+{
+	ht_t *ht;
+	numstr_ut val;
+
+	ht = ht_get_table(hname);
+	if(ht == NULL)
+		return -1;
+	/* not auto-expire htable */
+	if(ht->htexpire == 0)
+		return 0;
+	val.n = (long)ht->htexpire;
+	if(ht->dmqreplicate > 0
+			&& ht_dmq_replicate_action(
+					   HT_DMQ_SET_CELL_EXPIRE, hname, name, 0, &val, 0, 0)
+					   != 0) {
+		LM_ERR("dmq replication failed\n");
+	}
+	return ht_set_cell_expire(ht, name, 0, &val);
 }
 
 /**
  * get a clone in pkg for an htable item
  * - returned pointer must be pkg_free() after use
  */
-ht_cell_t* ht_api_get_cell_clone(str *hname, str *name)
+ht_cell_t *ht_api_get_cell_clone(str *hname, str *name)
 {
-    ht_t* ht;
-    ht = ht_get_table(hname);
-    if(ht==NULL)
-        return NULL;
-    return ht_cell_pkg_copy(ht, name, NULL);
+	ht_t *ht;
+	ht = ht_get_table(hname);
+	if(ht == NULL)
+		return NULL;
+	return ht_cell_pkg_copy(ht, name, NULL);
 }
 
 /**
@@ -109,19 +168,21 @@ ht_cell_t* ht_api_get_cell_clone(str *hname, str *name)
  */
 int ht_api_rm_cell_re(str *hname, str *sre, int mode)
 {
-	ht_t* ht;
+	ht_t *ht;
 	int_str isval;
 	ht = ht_get_table(hname);
-	if(ht==NULL)
+	if(ht == NULL)
 		return -1;
-	if (ht->dmqreplicate>0) {
+	if(ht->dmqreplicate > 0) {
 		isval.s.s = sre->s;
 		isval.s.len = sre->len;
-		if (ht_dmq_replicate_action(HT_DMQ_RM_CELL_RE, hname, NULL, AVP_VAL_STR, &isval, mode)!=0) {
+		if(ht_dmq_replicate_action(
+				   HT_DMQ_RM_CELL_RE, hname, NULL, AVP_VAL_STR, &isval, mode, 0)
+				!= 0) {
 			LM_ERR("dmq replication failed\n");
 		}
 	}
-	if(ht_rm_cell_re(sre, ht, mode /* 0 - name; 1 - value */)<0)
+	if(ht_rm_cell_re(sre, ht, mode /* 0 - name; 1 - value */) < 0)
 		return -1;
 	return 0;
 }
@@ -131,31 +192,52 @@ int ht_api_rm_cell_re(str *hname, str *sre, int mode)
  */
 int ht_api_count_cells_re(str *hname, str *sre, int mode)
 {
-	ht_t* ht;
+	ht_t *ht;
 	ht = ht_get_table(hname);
-	if(ht==NULL)
+	if(ht == NULL)
 		return -1;
-	if(ht_count_cells_re(sre, ht, mode /* 0 - name; 1 - value */)<0)
+	if(ht_count_cells_re(sre, ht, mode /* 0 - name; 1 - value */) < 0)
 		return -1;
 	return 0;
 }
 
 /**
+ * Initialize tables added through the module API and start the auto-expire
+ * timer if one of them requires it.
+ */
+static int ht_api_init_tables(void)
+{
+	if(ht_init_tables() < 0)
+		return -1;
+
+	return ht_start_autoexpire_timer();
+}
+
+/**
  *
  */
-int bind_htable(htable_api_t* api)
+int bind_htable(htable_api_t *api)
 {
-	if (!api) {
+	if(!api) {
 		ERR("Invalid parameter value\n");
 		return -1;
 	}
+
+	api->table_spec = ht_table_spec;
+	api->init_tables = ht_api_init_tables;
 	api->set = ht_api_set_cell;
 	api->get_clone = ht_api_get_cell_clone;
-	api->rm  = ht_api_del_cell;
+	api->rm = ht_api_del_cell;
+	api->add_ival = ht_api_add_cell_ival;
 	api->set_expire = ht_api_set_cell_expire;
 	api->get_expire = ht_api_get_cell_expire;
-	api->rm_re    = ht_api_rm_cell_re;
+	api->refresh_expire = ht_api_refresh_cell_expire;
+	api->rm_re = ht_api_rm_cell_re;
 	api->count_re = ht_api_count_cells_re;
+	api->db_open_con = ht_db_open_con;
+	api->db_close_con = ht_db_close_con;
+	api->db_load_tables = ht_db_load_tables;
+	api->db_sync_tables = ht_db_sync_tables;
+
 	return 0;
 }
-

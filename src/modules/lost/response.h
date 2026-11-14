@@ -1,10 +1,12 @@
 /*
  * lost module LoST response parsing functions
  *
- * Copyright (C) 2021 Wolfgang Kampichler
+ * Copyright (C) 2022 Wolfgang Kampichler
  * DEC112, FREQUENTIS AG
  *
  * This file is part of Kamailio, a free SIP server.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +57,9 @@
 #define RED_PROP_MSG (const char *)"message"
 
 #define ERRORS_NODE (const char *)"errors"
+
+#define SIP_S (const char *)"sip:"
+#define SIPS_S (const char *)"sips:"
 
 #define HELD_RESPONSE_REFERENCE 1
 #define HELD_RESPONSE_VALUE 2
@@ -117,8 +122,10 @@ typedef struct lost_fsr
 
 /* read and parse response data */
 p_lost_fsr_t lost_parse_findServiceResponse(str);
-/* check response to dereferece request */
-int lost_check_HeldResponse(xmlNodePtr); 
+/* check response to dereference request */
+int lost_check_HeldResponse(xmlNodePtr);
+/* appends value to list objects */
+int lost_append_response_list(p_lost_list_t *, str);
 /* print the response */
 void lost_print_findServiceResponse(p_lost_fsr_t);
 /* remove response data from memory */
@@ -132,5 +139,8 @@ int is_https(char *);
 int is_cid_laquot(char *);
 int is_http_laquot(char *);
 int is_https_laquot(char *);
+
+/* list search */
+int lost_search_response_list(p_lost_list_t *, char **, const char *);
 
 #endif

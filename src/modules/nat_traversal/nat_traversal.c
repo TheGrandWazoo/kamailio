@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -39,9 +41,11 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdint.h>
 #include <ctype.h>
 #include <errno.h>
 #include <time.h>
+#include <inttypes.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 
@@ -112,7 +116,8 @@ MODULE_VERSION
 
 typedef bool (*NatTestFunction)(struct sip_msg *msg);
 
-typedef enum {
+typedef enum
+{
 	NTNone = 0,
 	NTPrivateContact = 1,
 	NTSourceAddress = 2,
@@ -144,6 +149,7 @@ typedef struct SIP_Dialog
 typedef struct NAT_Contact
 {
 	char *uri;
+	char *contact_uri;
 	struct socket_info *socket;
 
 	time_t registration_expire;
@@ -218,8 +224,7 @@ static bool test_private_via(struct sip_msg *msg);
 static int mod_init(void);
 static int child_init(int rank);
 static void mod_destroy(void);
-static int preprocess_request(
-		struct sip_msg *msg, unsigned int flags, void *param);
+
 static int reply_filter(struct sip_msg *reply);
 
 static int pv_parse_nat_contact_name(pv_spec_p sp, str *in);
@@ -245,7 +250,6 @@ struct tm_binds tm_api;
 struct dlg_binds dlg_api;
 bool have_dlg_api = false;
 
-static int dialog_flag = -1;
 static unsigned dialog_default_timeout = 12 * 3600; // 12 hours
 static int natt_contact_match = 0;
 
@@ -254,40 +258,44 @@ stat_var *registered_endpoints = 0;
 stat_var *subscribed_endpoints = 0;
 stat_var *dialog_endpoints = 0;
 
+/** SL API structure */
+sl_api_t slb;
+
+/* clang-format off */
 static NetInfo rfc1918nets[] = {
 	{"10.0.0.0", 0x0a000000UL, 0xff000000UL},
 	{"172.16.0.0", 0xac100000UL, 0xfff00000UL},
 	{"192.168.0.0", 0xc0a80000UL, 0xffff0000UL},
-	{"100.64.0.0", 0x64400000UL, 0xffc00000UL}, // include rfc6598 shared address space as technically the same for our purpose
-	{"192.0.0.0", 0xc0000000UL, 0xfffffff8UL}, // include rfc7335 IPv4 Service Continuity Prefix
+	// include rfc6598 shared address space as technically the same for our purpose
+	{"100.64.0.0", 0x64400000UL, 0xffc00000UL},
+	// include rfc7335 IPv4 Service Continuity Prefix
+	{"192.0.0.0", 0xc0000000UL, 0xfffffff8UL},
 	{NULL, 0UL, 0UL}
 };
 
 static NatTest NAT_Tests[] = {
 	{NTPrivateContact, test_private_contact},
 	{NTSourceAddress, test_source_address},
-	{NTPrivateVia, test_private_via}, {NTNone, NULL}
+	{NTPrivateVia, test_private_via},
+	{NTNone, NULL}
 };
 
-/** SL API structure */
-sl_api_t slb;
-
 static cmd_export_t commands[] = {
-	{"nat_keepalive", (cmd_function)w_NAT_Keepalive, 0, NULL, 0,
-		REQUEST_ROUTE},
-	{"fix_contact", (cmd_function)w_FixContact, 0, NULL, 0,
-		ANY_ROUTE},
-	{"client_nat_test", (cmd_function)w_ClientNatTest, 1, fixup_igp_null, 0,
-		ANY_ROUTE},
+	{"nat_keepalive", (cmd_function)w_NAT_Keepalive, 0,
+		0, 0, REQUEST_ROUTE},
+	{"fix_contact", (cmd_function)w_FixContact, 0,
+		0, 0, ANY_ROUTE},
+	{"client_nat_test", (cmd_function)w_ClientNatTest, 1,
+		fixup_igp_null, fixup_free_igp_null, ANY_ROUTE},
+
 	{0, 0, 0, 0, 0, 0}
 };
 
 static param_export_t parameters[] = {
-	{"keepalive_interval", INT_PARAM, &keepalive_interval},
+	{"keepalive_interval", PARAM_INT, &keepalive_interval},
 	{"keepalive_method", PARAM_STRING, &keepalive_params.method},
 	{"keepalive_from", PARAM_STRING, &keepalive_params.from},
-	{"keepalive_extra_headers", PARAM_STRING,
-			&keepalive_params.extra_headers},
+	{"keepalive_extra_headers", PARAM_STRING, &keepalive_params.extra_headers},
 	{"keepalive_state_file", PARAM_STRING, &keepalive_state_file},
 	{"contact_match", PARAM_INT, &natt_contact_match},
 
@@ -296,9 +304,9 @@ static param_export_t parameters[] = {
 
 static pv_export_t pvars[] = {
 	{str_init("keepalive.socket"), PVT_OTHER, pv_get_keepalive_socket, NULL,
-			pv_parse_nat_contact_name, NULL, NULL, 0},
+		pv_parse_nat_contact_name, NULL, NULL, 0},
 	{str_init("source_uri"), PVT_OTHER, pv_get_source_uri, NULL, NULL, NULL,
-			NULL, 0},
+		NULL, 0},
 	{{0, 0}, 0, 0, 0, 0, 0, 0, 0}
 };
 
@@ -307,22 +315,24 @@ static stat_export_t statistics[] = {
 	{"keepalive_endpoints", STAT_NO_RESET, &keepalive_endpoints},
 	{"registered_endpoints", STAT_NO_RESET, &registered_endpoints},
 	{"subscribed_endpoints", STAT_NO_RESET, &subscribed_endpoints},
-	{"dialog_endpoints", STAT_NO_RESET, &dialog_endpoints}, {0, 0, 0}};
+	{"dialog_endpoints", STAT_NO_RESET, &dialog_endpoints},
+	{0, 0, 0}
+};
 #endif
 
 struct module_exports exports = {
 	"nat_traversal", // module name
 	DEFAULT_DLFLAGS, // dlopen flags
-	commands,	 // exported functions
-	parameters,	 // exported parameters
-	0,		 // exported RPC methods
-	pvars,		 // exported pseudo-variables
-	reply_filter, 	 // reply processing function
-	mod_init,	 // module init function (before fork. kids will inherit)
-	child_init, 	 // child init function
-	mod_destroy  	 // destroy function
+	commands,		 // exported functions
+	parameters,		 // exported parameters
+	0,				 // exported RPC methods
+	pvars,			 // exported pseudo-variables
+	reply_filter,	 // reply processing function
+	mod_init,	// module init function (before fork. kids will inherit)
+	child_init, // child init function
+	mod_destroy // destroy function
 };
-
+/* clang-format on */
 
 // SIP_Dialog structure handling functions
 //
@@ -428,7 +438,8 @@ static INLINE void SIP_Subscription_expire(NAT_Contact *contact, time_t now)
 // NAT_Contact structure handling functions
 //
 
-static NAT_Contact *NAT_Contact_new(char *uri, struct socket_info *socket)
+static NAT_Contact *NAT_Contact_new(
+		char *uri, struct socket_info *socket, char *contact_uri)
 {
 	NAT_Contact *contact;
 
@@ -445,6 +456,19 @@ static NAT_Contact *NAT_Contact_new(char *uri, struct socket_info *socket)
 		shm_free(contact);
 		return NULL;
 	}
+
+	if(contact_uri) {
+		contact->contact_uri = shm_char_dup(contact_uri);
+		if(!contact->contact_uri) {
+			LM_ERR("out of memory while creating new NAT_Contact structure\n");
+			shm_free(contact->uri);
+			shm_free(contact);
+			return NULL;
+		}
+	} else {
+		contact->contact_uri = NULL;
+	}
+
 	contact->socket = socket;
 
 	update_stat(keepalive_endpoints, 1);
@@ -474,6 +498,8 @@ static void NAT_Contact_del(NAT_Contact *contact)
 	update_stat(keepalive_endpoints, -1);
 
 	shm_free(contact->uri);
+	if(contact->contact_uri)
+		shm_free(contact->contact_uri);
 	shm_free(contact);
 }
 
@@ -820,7 +846,7 @@ static bool test_private_via(struct sip_msg *msg)
 }
 
 
-// return the Expires header value (converted to an UNIX timestamp if > 0)
+// return the Expires header value (converted to a UNIX timestamp if > 0)
 static int get_expires(struct sip_msg *msg)
 {
 	exp_body_t *expires;
@@ -901,11 +927,12 @@ static time_t get_register_expire(
 				r_contact_body = (contact_body_t *)r_hdr->parsed;
 				for(r_contact = r_contact_body->contacts; r_contact;
 						r_contact = r_contact->next) {
-					if((natt_contact_match==0
-								&& STR_MATCH_STR(contact->uri, r_contact->uri))
-							|| (natt_contact_match==1
-								&& cmp_uri_light_str(&contact->uri,
-									&r_contact->uri)==0)){
+					if((natt_contact_match == 0
+							   && STR_MATCH_STR(contact->uri, r_contact->uri))
+							|| (natt_contact_match == 1
+									&& cmp_uri_light_str(
+											   &contact->uri, &r_contact->uri)
+											   == 0)) {
 						expires_param = r_contact->expires;
 						if(expires_param && expires_param->body.len
 								&& str2int(&expires_param->body, &exp) == 0)
@@ -922,7 +949,7 @@ static time_t get_register_expire(
 		}
 	}
 
-	LM_DBG("maximum expire for all contacts: %u\n", (unsigned)expire);
+	LM_DBG("maximum expire for all contacts: %" PRIu64 "\n", (uint64_t)expire);
 
 	return (expire ? expire + now : 0);
 }
@@ -937,13 +964,55 @@ static char *get_source_uri(struct sip_msg *msg)
 }
 
 
+static char *get_source_contact_uri(struct sip_msg *msg)
+{
+	struct hdr_field contact_hdr;
+	contact_body_t *contact_body;
+	contact_t *contact;
+	static char contact_uri[MAX_URI_SIZE];
+	int len;
+
+	if((parse_headers(msg, HDR_CONTACT_F, 0) == -1) || !msg->contact)
+		return NULL;
+
+	// Parse Contact using a local header copy to avoid writing a pkg pointer
+	// into msg->contact->parsed on shared memory messages (TM does not clone
+	// the Contact parsed body, so the field may be NULL or stale)
+	memcpy(&contact_hdr, msg->contact, sizeof(struct hdr_field));
+	contact_hdr.parsed = NULL;
+	if(parse_contact(&contact_hdr) < 0) {
+		LM_ERR("cannot parse the Contact header\n");
+		return NULL;
+	}
+
+	contact_body = (contact_body_t *)contact_hdr.parsed;
+	contact = contact_body->contacts;
+
+	if(contact == NULL) {
+		clean_hdr_field(&contact_hdr);
+		return NULL;
+	}
+
+	len = contact->uri.len < (int)sizeof(contact_uri) - 1
+				  ? contact->uri.len
+				  : (int)sizeof(contact_uri) - 1;
+	memcpy(contact_uri, contact->uri.s, len);
+	contact_uri[len] = '\0';
+
+	clean_hdr_field(&contact_hdr);
+	return contact_uri;
+}
+
+
 static void keepalive_registration(struct sip_msg *request, time_t expire)
 {
 	NAT_Contact *contact;
 	unsigned h;
 	char *uri;
+	char *contact_uri;
 
 	uri = get_source_uri(request);
+	contact_uri = get_source_contact_uri(request);
 
 	h = HASH(nat_table, uri);
 	lock_get(&nat_table->slots[h].lock);
@@ -952,7 +1021,7 @@ static void keepalive_registration(struct sip_msg *request, time_t expire)
 	if(contact) {
 		SIP_Registration_update(contact, expire);
 	} else {
-		contact = NAT_Contact_new(uri, request->rcv.bind_address);
+		contact = NAT_Contact_new(uri, request->rcv.bind_address, contact_uri);
 		if(contact) {
 			SIP_Registration_update(contact, expire);
 			contact->next = nat_table->slots[h].head;
@@ -971,8 +1040,10 @@ static void keepalive_subscription(struct sip_msg *request, time_t expire)
 	NAT_Contact *contact;
 	unsigned h;
 	char *uri;
+	char *contact_uri;
 
 	uri = get_source_uri(request);
+	contact_uri = get_source_contact_uri(request);
 
 	h = HASH(nat_table, uri);
 	lock_get(&nat_table->slots[h].lock);
@@ -981,7 +1052,7 @@ static void keepalive_subscription(struct sip_msg *request, time_t expire)
 	if(contact) {
 		SIP_Subscription_update(contact, expire);
 	} else {
-		contact = NAT_Contact_new(uri, request->rcv.bind_address);
+		contact = NAT_Contact_new(uri, request->rcv.bind_address, contact_uri);
 		if(contact) {
 			SIP_Subscription_update(contact, expire);
 			contact->next = nat_table->slots[h].head;
@@ -1170,7 +1241,7 @@ static void __dialog_destroy(
 
 	lock_get(&param->lock);
 
-	// remove all keepalives on unanswered branches. this is neded because
+	// remove all keepalives on unanswered branches. This is needed because
 	// we may transit from early to ended without going through confirmed
 	for(i = 0; i < param->callee_candidates.count; i++) {
 		h = HASH(nat_table, param->callee_candidates.uri[i]);
@@ -1259,7 +1330,8 @@ static void __dialog_created(
 			LM_ERR("cannot allocate shared memory for new SIP dialog\n");
 		}
 	} else {
-		contact = NAT_Contact_new(uri, request->rcv.bind_address);
+		char *contact_uri = get_source_contact_uri(request);
+		contact = NAT_Contact_new(uri, request->rcv.bind_address, contact_uri);
 		if(contact) {
 			contact->dialogs = SIP_Dialog_new(dlg, param->expire);
 			if(contact->dialogs) {
@@ -1417,8 +1489,6 @@ static int NAT_Keepalive(struct sip_msg *msg)
 				return -1;
 			}
 			msg->msg_flags |= FL_DO_KEEPALIVE;
-			setflag(msg,
-					dialog_flag); // have the dialog module trace this dialog
 			return 1;
 
 		default:
@@ -1484,18 +1554,19 @@ static int FixContact(struct sip_msg *msg)
 	}
 
 	if(msg->rcv.src_ip.af == AF_INET6) {
-		buf.len = snprintf(buf.s, len, "%.*s[%s]:%d%.*s", before_host.len, before_host.s,
-				newip.s, newport, after.len, after.s);
+		buf.len = snprintf(buf.s, len, "%.*s[%s]:%d%.*s", before_host.len,
+				before_host.s, newip.s, newport, after.len, after.s);
 	} else {
-		buf.len = snprintf(buf.s, len, "%.*s%s:%d%.*s", before_host.len, before_host.s,
-				newip.s, newport, after.len, after.s);
+		buf.len = snprintf(buf.s, len, "%.*s%s:%d%.*s", before_host.len,
+				before_host.s, newip.s, newport, after.len, after.s);
 	}
-	if(buf.len < 0 || buf.len>=len) {
+	if(buf.len < 0 || buf.len >= len) {
 		pkg_free(buf.s);
 		return -1;
 	}
 
-	if(insert_new_lump_after(anchor, buf.s, buf.len, (enum _hdr_types_t)HDR_CONTACT_F)
+	if(insert_new_lump_after(
+			   anchor, buf.s, buf.len, (enum _hdr_types_t)HDR_CONTACT_F)
 			== 0) {
 		pkg_free(buf.s);
 		return -1;
@@ -1529,7 +1600,7 @@ static int w_ClientNatTest(struct sip_msg *msg, char *ptests, char *p2)
 {
 	int tests;
 
-	if(fixup_get_ivalue(msg, (gparam_t*)ptests, &tests)<0) {
+	if(fixup_get_ivalue(msg, (gparam_t *)ptests, &tests) < 0) {
 		LM_ERR("failed to get tests parameter\n");
 		return -1;
 	}
@@ -1543,7 +1614,7 @@ static int w_ClientNatTest(struct sip_msg *msg, char *ptests, char *p2)
 
 static void send_keepalive(NAT_Contact *contact)
 {
-	char buffer[8192], *from_uri, *ptr;
+	char buffer[8192], *from_uri, *to_uri, *ptr;
 	static char from[64] = FROM_PREFIX;
 	static char *from_ip = from + sizeof(FROM_PREFIX) - 1;
 	static struct socket_info *last_socket = NULL;
@@ -1553,10 +1624,18 @@ static void send_keepalive(NAT_Contact *contact)
 	str nat_ip;
 	unsigned short lport;
 	char lproto;
+	str vaddr;
+	int vport;
 
-	if(contact==NULL || contact->socket==NULL) {
+	if(contact == NULL || contact->socket == NULL) {
 		LM_ERR("invalid parameters\n");
 		return;
+	}
+
+	if(contact->contact_uri) {
+		to_uri = contact->contact_uri;
+	} else {
+		to_uri = contact->uri;
 	}
 
 	if(keepalive_params.from == NULL) {
@@ -1571,6 +1650,16 @@ static void send_keepalive(NAT_Contact *contact)
 		from_uri = keepalive_params.from;
 	}
 
+	if(contact->socket->useinfo.name.len > 0)
+		vaddr = contact->socket->useinfo.name;
+	else
+		vaddr = contact->socket->address_str;
+
+	if(contact->socket->useinfo.port_no > 0)
+		vport = contact->socket->useinfo.port_no;
+	else
+		vport = contact->socket->port_no;
+
 	len = snprintf(buffer, sizeof(buffer),
 			"%s %s SIP/2.0\r\n"
 			"Via: SIP/2.0/UDP %.*s:%d;branch=z9hG4bK%ld\r\n"
@@ -1580,13 +1669,11 @@ static void send_keepalive(NAT_Contact *contact)
 			"CSeq: 1 %s\r\n"
 			"%s%s"
 			"Content-Length: 0\r\n\r\n",
-			keepalive_params.method, contact->uri,
-			contact->socket->address_str.len, contact->socket->address_str.s,
-			contact->socket->port_no,
+			keepalive_params.method, to_uri, vaddr.len, vaddr.s, vport,
 			(long)(kam_rand() / (float)KAM_RAND_MAX
 							* (MAX_BRANCHID - MIN_BRANCHID)
 					+ MIN_BRANCHID),
-			from_uri, keepalive_params.from_tag++, contact->uri,
+			from_uri, keepalive_params.from_tag++, to_uri,
 			keepalive_params.callid_prefix, keepalive_params.callid_counter++,
 			get_ticks(), contact->socket->address_str.len,
 			contact->socket->address_str.s, keepalive_params.method,
@@ -1602,6 +1689,10 @@ static void send_keepalive(NAT_Contact *contact)
 	//nat_ip.s = strchr(contact->uri, ':') + 1;
 	nat_ip.s = &contact->uri[4]; // skip over "sip:"
 	ptr = strchr(nat_ip.s, ':');
+	if(ptr == NULL) {
+		LM_ERR("searching port failed\n");
+		return;
+	}
 	nat_ip.len = ptr - nat_ip.s;
 	nat_port = strtol(ptr + 1, NULL, 10);
 	lport = 0;
@@ -1681,10 +1772,11 @@ static void save_keepalive_state(void)
 	for(i = 0; i < nat_table->size; i++) {
 		contact = nat_table->slots[i].head;
 		while(contact) {
-			fprintf(f, "%s %.*s %ld %ld\n", contact->uri,
+			fprintf(f, "%s %.*s %ld %ld %s\n", contact->uri,
 					contact->socket->sock_str.len, contact->socket->sock_str.s,
 					(long int)contact->registration_expire,
-					(long int)contact->subscription_expire);
+					(long int)contact->subscription_expire,
+					contact->contact_uri ? contact->contact_uri : "");
 			contact = contact->next;
 		}
 	}
@@ -1699,7 +1791,7 @@ static void save_keepalive_state(void)
 
 static void restore_keepalive_state(void)
 {
-	char uri[64], socket[64];
+	char uri[64], socket[64], contact_uri[MAX_URI_SIZE], fmt[128];
 	time_t rtime, stime, now;
 	NAT_Contact *contact;
 	struct socket_info *sock;
@@ -1708,6 +1800,10 @@ static void restore_keepalive_state(void)
 	str host;
 	FILE *f;
 	long long ll_1, ll_2;
+
+	snprintf(fmt, sizeof(fmt),
+			"%%63s %%63s %%" TIME_T_FMT " %%" TIME_T_FMT " %%%ds[^\n]%%*c",
+			MAX_URI_SIZE - 1);
 
 	if(!keepalive_state_file)
 		return;
@@ -1725,19 +1821,24 @@ static void restore_keepalive_state(void)
 	res = fscanf(f, STATE_FILE_HEADER); // skip header
 
 	while(true) {
-		res = fscanf(f, "%63s %63s %" TIME_T_FMT " %" TIME_T_FMT, uri, socket, &ll_1, &ll_2);
-		rtime = ll_1;
-		stime = ll_2;
+		ll_1 = 0;
+		ll_2 = 0;
+		uri[0] = '\0';
+		socket[0] = '\0';
+		contact_uri[0] = '\0';
+		res = fscanf(f, fmt, uri, socket, &ll_1, &ll_2, contact_uri);
 		if(res == EOF) {
 			if(ferror(f))
 				LM_ERR("error while reading keepalive state file: %s\n",
 						strerror(errno));
 			break;
-		} else if(res != 4) {
+		} else if(res < 4 || res > 5) {
 			LM_ERR("invalid/corrupted keepalive state file. ignoring remaining "
 				   "entries.\n");
 			break;
 		} else {
+			rtime = ll_1;
+			stime = ll_2;
 			if(now > rtime && now > stime)
 				continue; // expired entry
 
@@ -1750,7 +1851,7 @@ static void restore_keepalive_state(void)
 				continue; // socket no longer available since last time. ignore.
 
 			h = HASH(nat_table, uri);
-			contact = NAT_Contact_new(uri, sock);
+			contact = NAT_Contact_new(uri, sock, res == 5 ? contact_uri : NULL);
 			if(contact) {
 				SIP_Registration_update(contact, rtime);
 				SIP_Subscription_update(contact, stime);
@@ -1776,7 +1877,7 @@ static int mod_init(void)
 	int *param;
 	modparam_t type;
 
-	if(natt_contact_match!=0) {
+	if(natt_contact_match != 0) {
 		natt_contact_match = 1;
 	}
 
@@ -1809,36 +1910,24 @@ static int mod_init(void)
 
 	// bind to the dialog API
 	if(load_dlg_api(&dlg_api) == 0) {
-		// load dlg_flag and default_timeout parameters from the dialog module
-		param = find_param_export(
-				find_module_by_name("dialog"), "dlg_flag", INT_PARAM, &type);
-		if(param) {
+		// load default_timeout parameters from the dialog module
+		param = find_param_export(find_module_by_name("dialog"),
+				"default_timeout", PARAM_INT, &type);
+		if(!param) {
+			LM_ERR("cannot find default_timeout parameter in the dialog "
+				   "module\n");
+			return -1;
+		} else {
 			have_dlg_api = true;
 
-			dialog_flag = *param;
-
-			param = find_param_export(find_module_by_name("dialog"),
-					"default_timeout", INT_PARAM, &type);
-			if(!param) {
-				LM_ERR("cannot find default_timeout parameter in the dialog "
-					   "module\n");
-				return -1;
-			}
 			dialog_default_timeout = *param;
+
 
 			// register dialog creation callback
 			if(dlg_api.register_dlgcb(
 					   NULL, DLGCB_CREATED, __dialog_created, NULL, NULL)
 					!= 0) {
 				LM_ERR("cannot register callback for dialog creation\n");
-				return -1;
-			}
-
-			// register a pre-script callback to automatically enable dialog tracing
-			if(register_script_cb(
-					   preprocess_request, PRE_SCRIPT_CB | REQUEST_CB, 0)
-					!= 0) {
-				LM_ERR("could not register request preprocessing callback\n");
 				return -1;
 			}
 		}
@@ -1861,7 +1950,7 @@ static int mod_init(void)
 
 #ifdef STATISTICS
 	// we need the statistics initialized before restoring the keepalive state
-	if(register_module_stats(exports.name, statistics) < 0) {
+	if(register_module_stats("nat_traversal", statistics) < 0) {
 		LM_ERR("failed to initialize module statistics\n");
 		return -1;
 	}
@@ -1907,41 +1996,6 @@ static void mod_destroy(void)
 		nat_table = NULL;
 	}
 }
-
-
-// Preprocess a request before it is processed in the main script route
-//
-// Here we enable dialog tracing to be able to automatically extend an
-// existing registration keepalive to a destination, for the duration of
-// the dialog, even if the dialog source is not kept alive by explicitly
-// calling nat_keepalive(). This is needed to still be able to forward
-// messages to the callee, even if the registration keepalive expires
-// during the dialog and it is not renewed.
-//
-static int preprocess_request(
-		struct sip_msg *msg, unsigned int flags, void *_param)
-{
-	str totag;
-
-	if(msg->first_line.u.request.method_value != METHOD_INVITE)
-		return 1;
-
-	if(parse_headers(msg, HDR_TO_F, 0) == -1) {
-		LM_ERR("failed to parse To header\n");
-		return -1;
-	}
-	if(!msg->to) {
-		LM_ERR("missing To header\n");
-		return -1;
-	}
-	totag = get_to(msg)->tag_value;
-	if(totag.s == 0 || totag.len == 0) {
-		setflag(msg, dialog_flag);
-	}
-
-	return 1;
-}
-
 
 // Filter out replies to keepalive messages
 //
@@ -2047,6 +2101,10 @@ static int pv_get_keepalive_socket(
 	if(tv.rs.len > sizeof(uri) - 1) {
 		LM_ERR("NAT contact uri too long\n");
 		return -1;
+	}
+
+	if(nat_table == NULL) {
+		return pv_get_null(msg, param, res);
 	}
 
 	strncpy(uri, tv.rs.s, tv.rs.len);

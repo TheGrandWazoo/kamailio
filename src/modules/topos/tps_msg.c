@@ -21,9 +21,9 @@
 
 /*!
  * \file
- * \brief SIP-router topoh ::
- * \ingroup topoh
- * Module: \ref topoh
+ * \brief SIP-router topos ::
+ * \ingroup topos
+ * Module: \ref topos
  */
 
 #include <string.h>
@@ -32,7 +32,9 @@
 #include "../../core/mem/mem.h"
 #include "../../core/data_lump.h"
 #include "../../core/forward.h"
+#include "../../core/resolve.h"
 #include "../../core/trim.h"
+#include "../../core/strutils.h"
 #include "../../core/dset.h"
 #include "../../core/msg_translator.h"
 #include "../../core/parser/parse_rr.h"
@@ -43,31 +45,42 @@
 #include "../../core/parser/parse_via.h"
 #include "../../core/parser/contact/parse_contact.h"
 #include "../../core/parser/parse_refer_to.h"
+#include "tps_sn.h"
+
+
 #include "tps_msg.h"
 #include "tps_storage.h"
 
 extern int _tps_param_mask_callid;
-extern int _tps_contact_mode;
+extern int _tps_key_location;
 extern str _tps_cparam_name;
 extern int _tps_rr_update;
+extern int _tps_header_mode;
+extern unsigned int _tps_methods_update_time;
+extern int _tps_sn_refresh_topology;
+extern int _tps_dlg_mode;
 
 extern str _tps_context_param;
 extern str _tps_context_value;
 
 str _sr_hname_xbranch = str_init("P-SR-XBranch");
 str _sr_hname_xuuid = str_init("P-SR-XUID");
+str _tps_owner_hname = str_init("P-TPS-Owner");
+
+unsigned int _tps_methods_nocontact = METHOD_CANCEL | METHOD_BYE | METHOD_PRACK;
+unsigned int _tps_methods_noinitial = 0;
 
 /**
  *
  */
 int tps_skip_rw(char *s, int len)
 {
-	while(len>0)
-	{
-		if(s[len-1]==' ' || s[len-1]=='\t' || s[len-1]=='\n' || s[len-1]=='\r'
-				|| s[len-1]==',')
+	while(len > 0) {
+		if(s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\n'
+				|| s[len - 1] == '\r' || s[len - 1] == ',')
 			len--;
-		else return len;
+		else
+			return len;
 	}
 	return 0;
 }
@@ -78,10 +91,9 @@ int tps_skip_rw(char *s, int len)
 struct via_param *tps_get_via_param(struct via_body *via, str *name)
 {
 	struct via_param *p;
-	for(p=via->param_lst; p; p=p->next)
-	{
-		if(p->name.len==name->len
-				&& strncasecmp(p->name.s, name->s, name->len)==0)
+	for(p = via->param_lst; p; p = p->next) {
+		if(p->name.len == name->len
+				&& strncasecmp(p->name.s, name->s, name->len) == 0)
 			return p;
 	}
 	return NULL;
@@ -92,25 +104,23 @@ struct via_param *tps_get_via_param(struct via_body *via, str *name)
  */
 int tps_get_param_value(str *in, str *name, str *value)
 {
-	param_t* params = NULL;
-	param_t* p = NULL;
+	param_t *params = NULL;
+	param_t *p = NULL;
 	param_hooks_t phooks;
-	if (parse_params(in, CLASS_ANY, &phooks, &params)<0)
+	if(parse_params(in, CLASS_ANY, &phooks, &params) < 0)
 		return -1;
-	for (p = params; p; p=p->next)
-	{
-		if (p->name.len==name->len
-				&& strncasecmp(p->name.s, name->s, name->len)==0)
-		{
+	for(p = params; p; p = p->next) {
+		if(p->name.len == name->len
+				&& strncasecmp(p->name.s, name->s, name->len) == 0) {
 			*value = p->body;
 			free_params(params);
 			return 0;
 		}
 	}
 
-	if(params) free_params(params);
+	if(params)
+		free_params(params);
 	return 1;
-
 }
 
 /**
@@ -119,17 +129,17 @@ int tps_get_param_value(str *in, str *name, str *value)
 int tps_remove_headers(sip_msg_t *msg, uint32_t hdr)
 {
 	struct hdr_field *hf;
-	struct lump* l;
+	struct lump *l;
 
-	if(parse_headers(msg, HDR_EOH_F, 0)<0) {
+	if(parse_headers(msg, HDR_EOH_F, 0) < 0) {
 		LM_ERR("failed to parse headers\n");
 		return -1;
 	}
-	for (hf=msg->headers; hf; hf=hf->next) {
-		if (hdr!=hf->type)
+	for(hf = msg->headers; hf; hf = hf->next) {
+		if(hdr != hf->type)
 			continue;
-		l=del_lump(msg, hf->name.s-msg->buf, hf->len, 0);
-		if (l==0) {
+		l = del_lump(msg, hf->name.s - msg->buf, hf->len, 0);
+		if(l == 0) {
 			LM_ERR("failed to remove the header\n");
 			return -1;
 		}
@@ -142,13 +152,13 @@ int tps_remove_headers(sip_msg_t *msg, uint32_t hdr)
  */
 int tps_add_headers(sip_msg_t *msg, str *hname, str *hbody, int hpos)
 {
-	struct lump* anchor;
+	struct lump *anchor;
 	str hs;
 
-	if(hname==NULL || hname->len<=0 || hbody==NULL || hbody->len<=0)
+	if(hname == NULL || hname->len <= 0 || hbody == NULL || hbody->len <= 0)
 		return 0;
 
-	if(parse_headers(msg, HDR_EOH_F, 0)<0) {
+	if(parse_headers(msg, HDR_EOH_F, 0) < 0) {
 		LM_ERR("failed to parse headers\n");
 		return -1;
 	}
@@ -167,26 +177,26 @@ int tps_add_headers(sip_msg_t *msg, str *hname, str *hbody, int hpos)
 	}
 
 	hs.len = hname->len + 2 + hbody->len;
-	hs.s  = (char*)pkg_malloc(hs.len + 3);
-	if (hs.s==NULL) {
+	hs.s = (char *)pkg_malloc(hs.len + 3);
+	if(hs.s == NULL) {
 		PKG_MEM_ERROR_FMT("(%.*s - %d)\n", hname->len, hname->s, hs.len);
 		return -1;
 	}
 	memcpy(hs.s, hname->s, hname->len);
 	hs.s[hname->len] = ':';
-	hs.s[hname->len+1] = ' ';
+	hs.s[hname->len + 1] = ' ';
 	memcpy(hs.s + hname->len + 2, hbody->s, hbody->len);
 
 	/* add end of header if not present */
-	if(hs.s[hname->len + 2 + hbody->len - 1]!='\n') {
+	if(hs.s[hname->len + 2 + hbody->len - 1] != '\n') {
 		hs.s[hname->len + 2 + hbody->len] = '\r';
-		hs.s[hname->len + 2 + hbody->len+1] = '\n';
+		hs.s[hname->len + 2 + hbody->len + 1] = '\n';
 		hs.len += 2;
 	}
 
 	LM_DBG("adding to headers(%d) - [%.*s]\n", hpos, hs.len, hs.s);
 
-	if (insert_new_lump_before(anchor, hs.s, hs.len, 0) == 0) {
+	if(insert_new_lump_before(anchor, hs.s, hs.len, 0) == 0) {
 		LM_ERR("can't insert lump\n");
 		pkg_free(hs.s);
 		return -1;
@@ -203,7 +213,7 @@ int tps_get_uri_param_value(str *uri, str *name, str *value)
 	struct sip_uri puri;
 
 	memset(value, 0, sizeof(str));
-	if(parse_uri(uri->s, uri->len, &puri)<0)
+	if(parse_uri(uri->s, uri->len, &puri) < 0)
 		return -1;
 	return tps_get_param_value(&puri.params, name, value);
 }
@@ -219,22 +229,20 @@ int tps_get_uri_type(str *uri, int *mode, str *value)
 
 	memset(value, 0, sizeof(str));
 	*mode = 0;
-	if(parse_uri(uri->s, uri->len, &puri)<0)
+	if(parse_uri(uri->s, uri->len, &puri) < 0)
 		return -1;
 
 	LM_DBG("PARAMS [%.*s]\n", puri.params.len, puri.params.s);
 
-	if(check_self(&puri.host, puri.port_no, 0)==1)
-	{
+	if(check_self(&puri.host, puri.port_no, 0) == 1) {
 		/* myself -- matched on all protos */
 		ret = tps_get_param_value(&puri.params, &r2, value);
-		if(ret<0)
+		if(ret < 0)
 			return -1;
-		if(ret==1) /* not found */
+		if(ret == 1)  /* not found */
 			return 0; /* skip */
-		LM_DBG("VALUE [%.*s]\n",
-				value->len, value->s);
-		if(value->len==2 && strncasecmp(value->s, "on", 2)==0)
+		LM_DBG("VALUE [%.*s]\n", value->len, value->s);
+		if(value->len == 2 && strncasecmp(value->s, "on", 2) == 0)
 			*mode = 1;
 		memset(value, 0, sizeof(str));
 		return 0; /* skip */
@@ -246,14 +254,172 @@ int tps_get_uri_type(str *uri, int *mode, str *value)
 /**
  *
  */
-char* tps_msg_update(sip_msg_t *msg, unsigned int *olen)
+static int tps_extract_uuid_from_uri(
+		str *uri, int key_location, tps_data_t *ptsd)
+{
+	struct sip_uri puri;
+	int ret;
+	str tuuid = STR_NULL;
+
+	if(uri == NULL || uri->s == NULL || uri->len <= 0 || ptsd == NULL) {
+		return -1;
+	}
+
+	memset(ptsd, 0, sizeof(tps_data_t));
+
+	if(parse_uri(uri->s, uri->len, &puri) < 0) {
+		LM_ERR("failed to parse uri [%.*s]\n", uri->len, uri->s);
+		return -1;
+	}
+
+	if(key_location == TPS_KEY_LOCATION_PARAM) {
+		if(puri.sip_params.len > 0) {
+			ret = tps_get_param_value(
+					&puri.sip_params, &_tps_cparam_name, &tuuid);
+		} else {
+			ret = tps_get_param_value(&puri.params, &_tps_cparam_name, &tuuid);
+		}
+		if(ret < 0) {
+			LM_ERR("failed to parse uri parameter from [%.*s]\n", uri->len,
+					uri->s);
+			return -1;
+		}
+		if(ret == 1 || tuuid.len <= 0) {
+			LM_DBG("topos uri parameter not found in [%.*s]\n", uri->len,
+					uri->s);
+			return 1;
+		}
+		if(tuuid.len < 6) {
+			LM_DBG("topos uri parameter too short in [%.*s]\n", uri->len,
+					uri->s);
+			return 1;
+		}
+	} else {
+		if(puri.user.len < 6) {
+			LM_DBG("uri user too short for topos uuid in [%.*s]\n", uri->len,
+					uri->s);
+			return 1;
+		}
+		tuuid = puri.user;
+	}
+
+	if(memcmp(tuuid.s, "atpsh-", 6) == 0 || memcmp(tuuid.s, "btpsh-", 6) == 0) {
+		ptsd->a_uuid = tuuid;
+		return 0;
+	}
+
+	LM_DBG("uri [%.*s] does not contain a topos uuid\n", uri->len, uri->s);
+	return 1;
+}
+
+/**
+ *
+ */
+static int tps_unmask_refer_to(
+		sip_msg_t *msg, tps_data_t *stsd, uint32_t direction)
+{
+	tps_data_t ltsd;
+	tps_data_t rtsd;
+	str *uri;
+	str nuri;
+	str vuri;
+	struct lump *l;
+	int ulen;
+	int ret;
+
+	if(!((get_cseq(msg)->method_id) & METHOD_REFER)) {
+		return 0;
+	}
+
+	if(parse_refer_to_header(msg) == -1) {
+		LM_DBG("no Refer-To header\n");
+		return 0;
+	}
+	if(msg->refer_to == NULL || get_refer_to(msg) == NULL) {
+		LM_DBG("Refer-To header not found\n");
+		return 0;
+	}
+
+	uri = &(get_refer_to(msg)->uri);
+	memset(&ltsd, 0, sizeof(tps_data_t));
+	memset(&rtsd, 0, sizeof(tps_data_t));
+
+	ret = tps_extract_uuid_from_uri(uri, _tps_key_location, &ltsd);
+	if(ret != 0) {
+		return (ret > 0) ? 0 : -1;
+	}
+
+	if(stsd != NULL && stsd->x_context.len > 0) {
+		ltsd.x_context = stsd->x_context;
+	}
+
+	ret = tps_storage_load_dialog(msg, &ltsd, &rtsd);
+	if(ret < 0) {
+		LM_ERR("failed to load dialog for Refer-To target [%.*s]\n", uri->len,
+				uri->s);
+		return -1;
+	}
+	if(ret > 0) {
+		LM_DBG("no stored dialog for Refer-To target [%.*s]\n", uri->len,
+				uri->s);
+		return 0;
+	}
+
+	if(direction == TPS_DIR_UPSTREAM) {
+		nuri = rtsd.a_contact;
+	} else {
+		nuri = rtsd.b_contact;
+	}
+
+	if(nuri.s == NULL || nuri.len <= 0) {
+		LM_ERR("no stored contact for Refer-To target [%.*s]\n", uri->len,
+				uri->s);
+		return -1;
+	}
+
+	vuri.s = (char *)pkg_malloc(nuri.len + 1);
+	if(vuri.s == NULL) {
+		PKG_MEM_ERROR;
+		return -1;
+	}
+	memcpy(vuri.s, nuri.s, nuri.len);
+	vuri.len = nuri.len;
+	vuri.s[vuri.len] = '\0';
+
+	for(ulen = 0; ulen < uri->len; ulen++) {
+		if(uri->s[ulen] == '?') {
+			break;
+		}
+	}
+
+	l = del_lump(msg, uri->s - msg->buf, ulen, 0);
+	if(l == 0) {
+		LM_ERR("failed deleting Refer-To uri\n");
+		pkg_free(vuri.s);
+		return -1;
+	}
+
+	if(insert_new_lump_after(l, nuri.s, nuri.len, 0) == 0) {
+		LM_ERR("could not insert new Refer-To uri\n");
+		pkg_free(vuri.s);
+		return -1;
+	}
+
+	LM_DBG("Refer-To uri updated to [%.*s]\n", nuri.len, nuri.s);
+	return 0;
+}
+
+/**
+ *
+ */
+char *tps_msg_update(sip_msg_t *msg, unsigned int *olen)
 {
 	struct dest_info dst;
 
 	init_dest_info(&dst);
 	dst.proto = PROTO_UDP;
-	return build_req_buf_from_sip_req(msg,
-			olen, &dst, BUILD_NO_LOCAL_VIA|BUILD_NO_VIA1_UPDATE);
+	return build_req_buf_from_sip_req(
+			msg, olen, &dst, BUILD_NO_LOCAL_VIA | BUILD_NO_VIA1_UPDATE, NULL);
 }
 
 /**
@@ -261,13 +427,20 @@ char* tps_msg_update(sip_msg_t *msg, unsigned int *olen)
  */
 int tps_skip_msg(sip_msg_t *msg)
 {
-	if (msg->cseq==NULL || get_cseq(msg)==NULL) {
+	if(msg->cseq == NULL || get_cseq(msg) == NULL) {
 		LM_WARN("Invalid/Unparsed CSeq in message. Skipping.");
 		return 1;
 	}
 
-	if((get_cseq(msg)->method_id)&(METHOD_REGISTER|METHOD_PUBLISH))
+	if((get_cseq(msg)->method_id) & (METHOD_REGISTER | METHOD_PUBLISH))
 		return 1;
+
+	if(_tps_methods_noinitial != 0 && msg->first_line.type == SIP_REQUEST
+			&& get_to(msg)->tag_value.len <= 0) {
+		if((get_cseq(msg)->method_id) & _tps_methods_noinitial) {
+			return 1;
+		}
+	}
 
 	return 0;
 }
@@ -275,21 +448,21 @@ int tps_skip_msg(sip_msg_t *msg)
 /**
  *
  */
-int tps_dlg_detect_direction(sip_msg_t *msg, tps_data_t *ptsd,
-		uint32_t *direction)
+int tps_dlg_detect_direction(
+		sip_msg_t *msg, tps_data_t *ptsd, uint32_t *direction)
 {
 	str ftag = {0, 0};
 	/* detect direction - get from-tag */
-	if(parse_from_header(msg)<0 || msg->from==NULL) {
+	if(parse_from_header(msg) < 0 || msg->from == NULL) {
 		LM_ERR("failed getting 'from' header!\n");
 		goto error;
 	}
 	ftag = get_from(msg)->tag_value;
 
-	if(ptsd->a_tag.len!=ftag.len) {
+	if(ptsd->a_tag.len != ftag.len) {
 		*direction = TPS_DIR_UPSTREAM;
 	} else {
-		if(memcmp(ptsd->a_tag.s, ftag.s, ftag.len)==0) {
+		if(memcmp(ptsd->a_tag.s, ftag.s, ftag.len) == 0) {
 			*direction = TPS_DIR_DOWNSTREAM;
 		} else {
 			*direction = TPS_DIR_UPSTREAM;
@@ -304,47 +477,56 @@ error:
 /**
  *
  */
-int tps_dlg_message_update(sip_msg_t *msg, tps_data_t *ptsd, int ctmode)
+int tps_dlg_message_update(sip_msg_t *msg, tps_data_t *ptsd, int key_location)
 {
 	str tuuid = STR_NULL;
 	int ret;
 
 #define TPS_TUUID_MIN_LEN 10
 
-	if(parse_sip_msg_uri(msg)<0) {
+	if(parse_sip_msg_uri(msg) < 0) {
 		LM_ERR("failed to parse r-uri\n");
 		return -1;
 	}
 
-	if (ctmode == 1 || ctmode == 2) {
-		if(msg->parsed_uri.sip_params.len<TPS_TUUID_MIN_LEN) {
+	if(key_location == TPS_KEY_LOCATION_PARAM) {
+		if(msg->parsed_uri.sip_params.len < TPS_TUUID_MIN_LEN) {
 			LM_DBG("not an expected param format\n");
 			return 1;
 		}
 		/* find the r-uri parameter */
-		ret = tps_get_param_value(&msg->parsed_uri.params,
-			&_tps_cparam_name, &tuuid);
-		if (ret < 0) {
+		if(msg->parsed_uri.sip_params.len > 0) {
+			ret = tps_get_param_value(
+					&msg->parsed_uri.sip_params, &_tps_cparam_name, &tuuid);
+		} else {
+			ret = tps_get_param_value(
+					&msg->parsed_uri.params, &_tps_cparam_name, &tuuid);
+		}
+		if(ret < 0) {
 			LM_ERR("failed to parse param\n");
 			return -1;
 		}
-		if (ret == 1) {
+		if(ret == 1) {
 			LM_DBG("prefix para not found\n");
 			return 1;
 		}
+		if(tuuid.len < 6) {
+			LM_DBG("prefix param too short\n");
+			return 1;
+		}
 	} else {
-		if(msg->parsed_uri.user.len<TPS_TUUID_MIN_LEN) {
+		if(msg->parsed_uri.user.len < TPS_TUUID_MIN_LEN) {
 			LM_DBG("not an expected user format\n");
 			return 1;
 		}
 		tuuid = msg->parsed_uri.user;
 	}
 
-	if(memcmp(tuuid.s, "atpsh-", 6)==0) {
+	if(memcmp(tuuid.s, "atpsh-", 6) == 0) {
 		ptsd->a_uuid = tuuid;
 		return 0;
 	}
-	if(memcmp(tuuid.s, "btpsh-", 6)==0) {
+	if(memcmp(tuuid.s, "btpsh-", 6) == 0) {
 		ptsd->a_uuid = tuuid;
 		ptsd->b_uuid = tuuid;
 		return 0;
@@ -369,42 +551,44 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 	int isreq;
 	int rr_update = _tps_rr_update;
 
-	if(ptsd->cp==NULL) {
+	if(ptsd->cp == NULL) {
 		ptsd->cp = ptsd->cbuf;
 	}
 
 	if(_tps_rr_update) {
-		if((msg->first_line.type==SIP_REQUEST) && !(get_to(msg)->tag_value.len>0)) {
+		if((msg->first_line.type == SIP_REQUEST)
+				&& !(get_to(msg)->tag_value.len > 0)) {
 			rr_update = 0;
 		}
 	}
 
 	i = 0;
-	for(hdr=msg->h_via1; hdr; hdr=next_sibling_hdr(hdr)) {
-		for(via=(struct via_body*)hdr->parsed; via; via=via->next) {
+	for(hdr = msg->h_via1; hdr; hdr = next_sibling_hdr(hdr)) {
+		for(via = (struct via_body *)hdr->parsed; via; via = via->next) {
 			i++;
 			vlen = tps_skip_rw(via->name.s, via->bsize);
 			if(ptsd->cp + vlen + 2 >= ptsd->cbuf + TPS_DATA_SIZE) {
 				LM_ERR("no more space to pack via headers\n");
 				return -1;
 			}
-			if(i>1) {
+			if(i > 1) {
 				*ptsd->cp = ',';
 				ptsd->cp++;
-				if(i>2) {
+				if(i > 2) {
 					ptsd->x_via2.len++;
 				}
 			}
 			memcpy(ptsd->cp, via->name.s, vlen);
-			if(i==1) {
+			if(i == 1) {
 				ptsd->x_via1.s = ptsd->cp;
 				ptsd->x_via1.len = vlen;
-				if(via->branch!=NULL) {
-					ptsd->x_vbranch1.s = ptsd->x_via1.s + (via->branch->value.s - via->name.s);
+				if(via->branch != NULL) {
+					ptsd->x_vbranch1.s = ptsd->x_via1.s
+										 + (via->branch->value.s - via->name.s);
 					ptsd->x_vbranch1.len = via->branch->value.len;
 				}
 			} else {
-				if(i==2) {
+				if(i == 2) {
 					ptsd->x_via2.s = ptsd->cp;
 				}
 				ptsd->x_via2.len += vlen;
@@ -413,35 +597,37 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 		}
 	}
 	LM_DBG("compacted headers - x_via1: [%.*s](%d) - x_via2: [%.*s](%d)"
-			" - x_vbranch1: [%.*s](%d)\n",
+		   " - x_vbranch1: [%.*s](%d)\n",
 			ptsd->x_via1.len, ZSW(ptsd->x_via1.s), ptsd->x_via1.len,
 			ptsd->x_via2.len, ZSW(ptsd->x_via2.s), ptsd->x_via2.len,
-			ptsd->x_vbranch1.len, ZSW(ptsd->x_vbranch1.s), ptsd->x_vbranch1.len);
+			ptsd->x_vbranch1.len, ZSW(ptsd->x_vbranch1.s),
+			ptsd->x_vbranch1.len);
 
 	ptsd->a_rr.len = 0;
 	ptsd->s_rr.len = 0;
 	i = 0;
 	r2 = 0;
-	isreq = (msg->first_line.type==SIP_REQUEST)?1:0;
-	for(hdr=msg->record_route; hdr; hdr=next_sibling_hdr(hdr)) {
-		if (parse_rr(hdr) < 0) {
+	isreq = (msg->first_line.type == SIP_REQUEST) ? 1 : 0;
+	for(hdr = msg->record_route; hdr; hdr = next_sibling_hdr(hdr)) {
+		if(parse_rr(hdr) < 0) {
 			LM_ERR("failed to parse RR\n");
 			return -1;
 		}
 
-		for(rr =(rr_t*)hdr->parsed; rr; rr=rr->next) {
+		for(rr = (rr_t *)hdr->parsed; rr; rr = rr->next) {
 			i++;
-			if(ptsd->cp + rr->nameaddr.uri.len + 4 >= ptsd->cbuf + TPS_DATA_SIZE) {
+			if(ptsd->cp + rr->nameaddr.uri.len + 4
+					>= ptsd->cbuf + TPS_DATA_SIZE) {
 				LM_ERR("no more space to pack rr headers\n");
 				return -1;
 			}
-			if(isreq==1 || rr_update) {
+			if(isreq == 1 || rr_update) {
 				/* sip request - get a+s-side record route */
-				if(i>1) {
-					if(i==2 &&r2==0) {
+				if(i > 1) {
+					if(i == 2 && r2 == 0) {
 						ptsd->s_rr.len = ptsd->a_rr.len;
 					}
-					if(i==3 &&r2==1) {
+					if(i == 3 && r2 == 1) {
 						ptsd->s_rr.len = ptsd->a_rr.len;
 					}
 					*ptsd->cp = ',';
@@ -451,19 +637,19 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 						ptsd->b_rr.len++;
 					}
 				}
-				if(i==1 && rr_update) {
+				if(i == 1 && rr_update) {
 					ptsd->b_rr.s = ptsd->cp;
 				}
 				*ptsd->cp = '<';
-				if(i==1) {
+				if(i == 1) {
 					ptsd->a_rr.s = ptsd->cp;
 					ptsd->s_rr.s = ptsd->cp;
 				}
-				if(i==2 && r2==0) {
+				if(i == 2 && r2 == 0) {
 					ptsd->a_rr.s = ptsd->cp;
 					ptsd->a_rr.len = 0;
 				}
-				if(i==3 && r2==1) {
+				if(i == 3 && r2 == 1) {
 					ptsd->a_rr.s = ptsd->cp;
 					ptsd->a_rr.len = 0;
 				}
@@ -475,11 +661,12 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 				}
 
 				memcpy(ptsd->cp, rr->nameaddr.uri.s, rr->nameaddr.uri.len);
-				if(i==1) {
+				if(i == 1) {
 					ptsd->bs_contact.s = ptsd->cp;
 					ptsd->bs_contact.len = rr->nameaddr.uri.len;
 					if(_strnstr(ptsd->bs_contact.s, ";r2=on",
-								ptsd->bs_contact.len)==0) {
+							   ptsd->bs_contact.len)
+							== 0) {
 						LM_DBG("single record routing by proxy\n");
 						ptsd->as_contact.s = ptsd->cp;
 						ptsd->as_contact.len = rr->nameaddr.uri.len;
@@ -487,7 +674,7 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 						r2 = 1;
 					}
 				} else {
-					if(i==2 && ptsd->as_contact.len==0) {
+					if(i == 2 && ptsd->as_contact.len == 0) {
 						LM_DBG("double record routing by proxy\n");
 						ptsd->as_contact.s = ptsd->cp;
 						ptsd->as_contact.len = rr->nameaddr.uri.len;
@@ -504,10 +691,10 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 				}
 			} else {
 				/* sip response - get b-side record route */
-				if(i==1) {
+				if(i == 1) {
 					ptsd->b_rr.s = ptsd->cp;
 				}
-				if(i>1) {
+				if(i > 1) {
 					*ptsd->cp = ',';
 					ptsd->cp++;
 					ptsd->b_rr.len++;
@@ -524,26 +711,28 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 			}
 		}
 	}
-	if(isreq==1) {
-		if(i==1) {
+	if(isreq == 1) {
+		if(i == 1) {
 			ptsd->s_rr.len = ptsd->a_rr.len;
 			ptsd->a_rr.len = 0;
 		}
-		if(i==2 && r2==1) {
+		if(i == 2 && r2 == 1) {
 			ptsd->s_rr.len = ptsd->a_rr.len;
 			ptsd->a_rr.len = 0;
 		}
 	}
 	LM_DBG("compacted headers - a_rr: [%.*s](%d) - b_rr: [%.*s](%d)"
-			" - s_rr: [%.*s](%d)\n",
-			ptsd->a_rr.len, ZSW(ptsd->a_rr.s), ptsd->a_rr.len,
-			ptsd->b_rr.len, ZSW(ptsd->b_rr.s), ptsd->b_rr.len,
-			ptsd->s_rr.len, ZSW(ptsd->s_rr.s), ptsd->s_rr.len);
-	LM_DBG("compacted headers - as_contact: [%.*s](%d) - bs_contact: [%.*s](%d)\n",
+		   " - s_rr: [%.*s](%d)\n",
+			ptsd->a_rr.len, ZSW(ptsd->a_rr.s), ptsd->a_rr.len, ptsd->b_rr.len,
+			ZSW(ptsd->b_rr.s), ptsd->b_rr.len, ptsd->s_rr.len,
+			ZSW(ptsd->s_rr.s), ptsd->s_rr.len);
+	LM_DBG("compacted headers - as_contact: [%.*s](%d) - bs_contact: "
+		   "[%.*s](%d)\n",
 			ptsd->as_contact.len, ZSW(ptsd->as_contact.s), ptsd->as_contact.len,
-			ptsd->bs_contact.len, ZSW(ptsd->bs_contact.s), ptsd->bs_contact.len);
+			ptsd->bs_contact.len, ZSW(ptsd->bs_contact.s),
+			ptsd->bs_contact.len);
 	ptsd->x_rr = ptsd->a_rr;
-	if(isreq==0) {
+	if(isreq == 0) {
 		if(msg->first_line.u.reply.statuscode >= 180
 				&& msg->first_line.u.reply.statuscode < 199) {
 			/* provisional replies that create early dialogs
@@ -552,9 +741,9 @@ int tps_pack_message(sip_msg_t *msg, tps_data_t *ptsd)
 		}
 	}
 	ptsd->s_method_id = get_cseq(msg)->method_id;
-	if(_tps_context_value.len>0) {
+	if(_tps_context_value.len > 0) {
 		ptsd->x_context = _tps_context_value;
-	} else if(_tps_context_param.len>0) {
+	} else if(_tps_context_param.len > 0) {
 		ptsd->x_context = _tps_context_param;
 	}
 	return 0;
@@ -568,7 +757,7 @@ int tps_reinsert_via(sip_msg_t *msg, tps_data_t *ptsd, str *hbody)
 {
 	str hname = str_init("Via");
 
-	if(tps_add_headers(msg, &hname, hbody, 1)<0) {
+	if(tps_add_headers(msg, &hname, hbody, 1) < 0) {
 		return -1;
 	}
 
@@ -582,7 +771,11 @@ int tps_reinsert_contact(sip_msg_t *msg, tps_data_t *ptsd, str *hbody)
 {
 	str hname = str_init("Contact");
 
-	if(tps_add_headers(msg, &hname, hbody, 0)<0) {
+	if(get_cseq(msg)->method_id & _tps_methods_nocontact) {
+		return 0;
+	}
+
+	if(tps_add_headers(msg, &hname, hbody, 0) < 0) {
 		return -1;
 	}
 
@@ -595,17 +788,14 @@ int tps_reinsert_contact(sip_msg_t *msg, tps_data_t *ptsd, str *hbody)
 int tps_remove_name_headers(sip_msg_t *msg, str *hname)
 {
 	hdr_field_t *hf;
-	struct lump* l;
-	for (hf=msg->headers; hf; hf=hf->next)
-	{
-		if (hf->name.len==hname->len
-				&& strncasecmp(hf->name.s, hname->s,
-					hname->len)==0)
-		{
-			l=del_lump(msg, hf->name.s-msg->buf, hf->len, 0);
-			if (l==0) {
-				LM_ERR("unable to delete header [%.*s]\n",
-						hname->len, hname->s);
+	struct lump *l;
+	for(hf = msg->headers; hf; hf = hf->next) {
+		if(hf->name.len == hname->len
+				&& strncasecmp(hf->name.s, hname->s, hname->len) == 0) {
+			l = del_lump(msg, hf->name.s - msg->buf, hf->len, 0);
+			if(l == 0) {
+				LM_ERR("unable to delete header [%.*s]\n", hname->len,
+						hname->s);
 				return -1;
 			}
 			return 0;
@@ -615,13 +805,97 @@ int tps_remove_name_headers(sip_msg_t *msg, str *hname)
 }
 
 /**
+ * @brief remove every topos-internal header in a SINGLE pass over the headers
+ * @return number of headers marked for removal (>=0), -1 on error
+ */
+int tps_remove_internal_headers(sip_msg_t *msg)
+{
+	str *names[4];
+	int nnames = 0;
+	hdr_field_t *hf;
+	struct lump *l;
+	int i;
+	int n = 0;
+
+	names[nnames++] = &_sr_hname_xuuid;
+	names[nnames++] = &_sr_hname_xbranch;
+	if(_tps_dlg_mode) {
+		names[nnames++] = &_tps_owner_hname;
+	}
+
+	for(hf = msg->headers; hf; hf = hf->next) {
+		for(i = 0; i < nnames; i++) {
+			if(hf->name.len == names[i]->len
+					&& cmp_hdrname_str(&hf->name, names[i]) == 0) {
+				l = del_lump(msg, hf->name.s - msg->buf, hf->len, 0);
+				if(l == 0) {
+					LM_CRIT("unable to delete header [%.*s]\n", names[i]->len,
+							names[i]->s);
+					return -1;
+				}
+				n++;
+				break;
+			}
+		}
+	}
+	return n;
+}
+
+/**
  *
  */
+int tps_reappend_separate_header_values(
+		sip_msg_t *msg, tps_data_t *ptsd, str *hbody, str *hname)
+{
+
+	int i;
+	str sb;
+	char *p = NULL;
+
+	if(hbody == NULL || hbody->s == NULL || hbody->len <= 0
+			|| hbody->s[0] == '\0')
+		return 0;
+
+	sb.len = 1;
+	p = hbody->s;
+	for(i = 0; i < hbody->len - 1; i++) {
+		if(hbody->s[i] == ',') {
+			if(sb.len > 0) {
+				sb.s = p;
+				if(sb.s[sb.len - 1] == ',')
+					sb.len--;
+				if(tps_add_headers(msg, hname, &sb, 0) < 0) {
+					return -1;
+				}
+			}
+			sb.len = 0;
+			p = hbody->s + i + 1;
+		}
+		sb.len++;
+	}
+
+
+	if(sb.len > 0) {
+		sb.s = p;
+		if(sb.s[sb.len - 1] == ',')
+			sb.len--;
+		if(tps_add_headers(msg, hname, &sb, 0) < 0) {
+			return -1;
+		}
+	}
+
+
+	return 0;
+}
+
 int tps_reappend_via(sip_msg_t *msg, tps_data_t *ptsd, str *hbody)
 {
 	str hname = str_init("Via");
 
-	if(tps_add_headers(msg, &hname, hbody, 0)<0) {
+	if(TPS_SPLIT_VIA & _tps_header_mode)
+		return tps_reappend_separate_header_values(msg, ptsd, hbody, &hname);
+
+	if(tps_add_headers(msg, &hname, hbody, 0) < 0) {
 		return -1;
 	}
 
@@ -633,9 +907,9 @@ int tps_reappend_via(sip_msg_t *msg, tps_data_t *ptsd, str *hbody)
  */
 int tps_append_xbranch(sip_msg_t *msg, str *hbody)
 {
-	if(tps_add_headers(msg, &_sr_hname_xbranch, hbody, 0)<0) {
-		LM_ERR("failed to add xbranch header [%.*s]/%d\n",
-				hbody->len, hbody->s, hbody->len);
+	if(tps_add_headers(msg, &_sr_hname_xbranch, hbody, 0) < 0) {
+		LM_ERR("failed to add xbranch header [%.*s]/%d\n", hbody->len, hbody->s,
+				hbody->len);
 		return -1;
 	}
 
@@ -656,19 +930,18 @@ int tps_remove_xbranch(sip_msg_t *msg)
 int tps_get_xbranch(sip_msg_t *msg, str *hbody)
 {
 	hdr_field_t *hf;
-	if(parse_headers(msg, HDR_EOH_F, 0)<0) {
+	if(parse_headers(msg, HDR_EOH_F, 0) < 0) {
 		return -1;
 	}
 
-	for (hf=msg->headers; hf; hf=hf->next)
-	{
-		if(_sr_hname_xbranch.len==hf->name.len
-				&& strncasecmp(_sr_hname_xbranch.s, hf->name.s,
-					hf->name.len)==0) {
+	for(hf = msg->headers; hf; hf = hf->next) {
+		if(_sr_hname_xbranch.len == hf->name.len
+				&& strncasecmp(_sr_hname_xbranch.s, hf->name.s, hf->name.len)
+						   == 0) {
 			break;
 		}
 	}
-	if(hf!=NULL) {
+	if(hf != NULL) {
 		*hbody = hf->body;
 		return 0;
 	}
@@ -681,9 +954,9 @@ int tps_get_xbranch(sip_msg_t *msg, str *hbody)
  */
 int tps_append_xuuid(sip_msg_t *msg, str *hbody)
 {
-	if(tps_add_headers(msg, &_sr_hname_xuuid, hbody, 0)<0) {
-		LM_ERR("failed to add xuuid header [%.*s]/%d\n",
-				hbody->len, hbody->s, hbody->len);
+	if(tps_add_headers(msg, &_sr_hname_xuuid, hbody, 0) < 0) {
+		LM_ERR("failed to add xuuid header [%.*s]/%d\n", hbody->len, hbody->s,
+				hbody->len);
 		return -1;
 	}
 
@@ -704,19 +977,18 @@ int tps_remove_xuuid(sip_msg_t *msg)
 int tps_get_xuuid(sip_msg_t *msg, str *hbody)
 {
 	hdr_field_t *hf;
-	if(parse_headers(msg, HDR_EOH_F, 0)<0) {
+	if(parse_headers(msg, HDR_EOH_F, 0) < 0) {
 		return -1;
 	}
 
-	for (hf=msg->headers; hf; hf=hf->next)
-	{
-		if(_sr_hname_xuuid.len==hf->name.len
-				&& strncasecmp(_sr_hname_xuuid.s, hf->name.s,
-					hf->name.len)==0) {
+	for(hf = msg->headers; hf; hf = hf->next) {
+		if(_sr_hname_xuuid.len == hf->name.len
+				&& strncasecmp(_sr_hname_xuuid.s, hf->name.s, hf->name.len)
+						   == 0) {
 			break;
 		}
 	}
-	if(hf!=NULL) {
+	if(hf != NULL) {
 		*hbody = hf->body;
 		return 0;
 	}
@@ -730,7 +1002,10 @@ int tps_reappend_rr(sip_msg_t *msg, tps_data_t *ptsd, str *hbody)
 {
 	str hname = str_init("Record-Route");
 
-	if(tps_add_headers(msg, &hname, hbody, 0)<0) {
+	if(TPS_SPLIT_RECORD_ROUTE & _tps_header_mode)
+		return tps_reappend_separate_header_values(msg, ptsd, hbody, &hname);
+
+	if(tps_add_headers(msg, &hname, hbody, 0) < 0) {
 		return -1;
 	}
 
@@ -747,19 +1022,21 @@ int tps_reappend_route(sip_msg_t *msg, tps_data_t *ptsd, str *hbody, int rev)
 	int c;
 	str sb;
 
-	if(hbody==NULL || hbody->s==NULL || hbody->len<=0 || hbody->s[0]=='\0')
+	if(hbody == NULL || hbody->s == NULL || hbody->len <= 0
+			|| hbody->s[0] == '\0')
 		return 0;
 
-	if(rev==1) {
+	if(rev == 1) {
 		c = 0;
 		sb.len = 1;
-		for(i=hbody->len-2; i>=0; i--) {
-			if(hbody->s[i]==',') {
+		for(i = hbody->len - 2; i >= 0; i--) {
+			if(hbody->s[i] == ',') {
 				c = 1;
-				if(sb.len>0) {
+				if(sb.len > 0) {
 					sb.s = hbody->s + i + 1;
-					if(sb.s[sb.len-1]==',') sb.len--;
-					if(tps_add_headers(msg, &hname, &sb, 0)<0) {
+					if(sb.s[sb.len - 1] == ',')
+						sb.len--;
+					if(tps_add_headers(msg, &hname, &sb, 0) < 0) {
 						return -1;
 					}
 				}
@@ -767,11 +1044,12 @@ int tps_reappend_route(sip_msg_t *msg, tps_data_t *ptsd, str *hbody, int rev)
 			}
 			sb.len++;
 		}
-		if(c==1) {
-			if(sb.len>0) {
+		if(c == 1) {
+			if(sb.len > 0) {
 				sb.s = hbody->s;
-				if(sb.s[sb.len-1]==',') sb.len--;
-				if(tps_add_headers(msg, &hname, &sb, 0)<0) {
+				if(sb.s[sb.len - 1] == ',')
+					sb.len--;
+				if(tps_add_headers(msg, &hname, &sb, 0) < 0) {
 					return -1;
 				}
 			}
@@ -780,15 +1058,50 @@ int tps_reappend_route(sip_msg_t *msg, tps_data_t *ptsd, str *hbody, int rev)
 	}
 
 	sb = *hbody;
-	if(sb.len>0 && sb.s[sb.len-1]==',') sb.len--;
+	if(sb.len > 0 && sb.s[sb.len - 1] == ',')
+		sb.len--;
 	trim_zeros_lr(&sb);
 	trim(&sb);
-	if(sb.len>0 && sb.s[sb.len-1]==',') sb.len--;
-	if(tps_add_headers(msg, &hname, &sb, 0)<0) {
+	if(sb.len > 0 && sb.s[sb.len - 1] == ',')
+		sb.len--;
+	if(TPS_SPLIT_ROUTE & _tps_header_mode)
+		return tps_reappend_separate_header_values(msg, ptsd, &sb, &hname);
+	if(tps_add_headers(msg, &hname, &sb, 0) < 0) {
 		return -1;
 	}
 
 	return 0;
+}
+
+/**
+ * Find the owner node address from the stored s_rr.
+ * returns 0 on success and fills *out_puri
+ * returns -1 when there is no usable bare-IP s_rr
+ */
+static int tps_owner_uri_from_srr(tps_data_t *stsd, sip_uri_t *out_puri)
+{
+	rr_t *srr = NULL;
+	rr_t *entry = NULL;
+	int ret = -1;
+
+	if(stsd == NULL || out_puri == NULL || stsd->s_rr.len <= 0) {
+		return -1;
+	}
+	if(parse_rr_body(stsd->s_rr.s, stsd->s_rr.len, &srr) < 0 || srr == NULL) {
+		return -1;
+	}
+	for(entry = srr; entry != NULL; entry = entry->next) {
+		if(parse_uri(entry->nameaddr.uri.s, entry->nameaddr.uri.len, out_puri)
+						== 0
+				&& (str2ip(&out_puri->host) != NULL
+						|| str2ip6(&out_puri->host) != NULL)) {
+			/* bare IP host only; an FQDN names no specific owner */
+			ret = 0;
+			break;
+		}
+	}
+	free_rr(&srr);
+	return ret;
 }
 
 /**
@@ -798,47 +1111,83 @@ int tps_request_received(sip_msg_t *msg, int dialog)
 {
 	tps_data_t mtsd;
 	tps_data_t stsd;
+	tps_data_t btsd;
 	str lkey;
 	str nuri;
 	uint32_t direction = TPS_DIR_DOWNSTREAM;
 	int ret;
 	int use_branch = 0;
+	int dlg_found = 0;
+	int subscribe_notify = 0;
+	unsigned int metid = 0;
+	uint32_t up_mode = 0;
+	rr_t *srr = NULL;
+	sip_uri_t opuri;
+	str oduri;
+	char odbuf[256];
+	int um_has_owner = 0;
 
 	LM_DBG("handling incoming request\n");
 
-	if(dialog==0) {
+	if(dialog == 0) {
 		/* nothing to do for initial request */
 		return 0;
 	}
 
 	memset(&mtsd, 0, sizeof(tps_data_t));
 	memset(&stsd, 0, sizeof(tps_data_t));
+	memset(&btsd, 0, sizeof(tps_data_t));
 
-	if(tps_pack_message(msg, &mtsd)<0) {
+	tps_unmask_callid(msg);
+
+	if(tps_pack_message(msg, &mtsd) < 0) {
 		LM_ERR("failed to extract and pack the headers\n");
 		return -1;
 	}
 
-	ret = tps_dlg_message_update(msg, &mtsd, _tps_contact_mode);
-	if(ret<0) {
+	ret = tps_dlg_message_update(msg, &mtsd, _tps_key_location);
+	if(ret < 0) {
 		LM_ERR("failed to update on dlg message\n");
 		return -1;
 	}
 
 	lkey = msg->callid->body;
 	LM_DBG("callid [%.*s] - a_uuid [%.*s] - b_uuid [%.*s]\n", lkey.len, lkey.s,
-			mtsd.a_uuid.len, ((mtsd.a_uuid.len>0)?mtsd.a_uuid.s:""),
-			mtsd.b_uuid.len, ((mtsd.b_uuid.len>0)?mtsd.b_uuid.s:""));
+			mtsd.a_uuid.len, ((mtsd.a_uuid.len > 0) ? mtsd.a_uuid.s : ""),
+			mtsd.b_uuid.len, ((mtsd.b_uuid.len > 0) ? mtsd.b_uuid.s : ""));
 
 	tps_storage_lock_get(&lkey);
 
-	if(tps_storage_load_dialog(msg, &mtsd, &stsd) < 0) {
+	ret = tps_storage_load_dialog(msg, &mtsd, &stsd);
+	if(ret < 0) {
 		goto error;
 	}
-	if(((get_cseq(msg)->method_id) & (METHOD_BYE|METHOD_PRACK|METHOD_UPDATE))
-			&& stsd.b_contact.len <= 0) {
-		/* no B-side contact, look for INVITE transaction record */
-		if((get_cseq(msg)->method_id) & (METHOD_UPDATE)) {
+	dlg_found = (ret == 0) ? 1 : 0;
+
+	/* unmask-miss: capture the owner node from the dialog s_rr now */
+	if(_tps_dlg_mode && (stsd.a_contact.len <= 0 || stsd.b_contact.len <= 0)
+			&& tps_owner_uri_from_srr(&stsd, &opuri) == 0) {
+		oduri.s = odbuf;
+		oduri.len =
+				snprintf(odbuf, sizeof(odbuf), "sip:%.*s:%u", opuri.host.len,
+						opuri.host.s, opuri.port_no ? opuri.port_no : SIP_PORT);
+		if(oduri.len > 0 && oduri.len < (int)sizeof(odbuf)) {
+			um_has_owner = 1;
+		}
+	}
+
+	metid = get_cseq(msg)->method_id;
+	subscribe_notify = ((metid & METHOD_NOTIFY) && stsd.s_method.len == 9
+						&& strncasecmp(stsd.s_method.s, "SUBSCRIBE", 9) == 0);
+	if((metid
+			   & (METHOD_BYE | METHOD_INFO | METHOD_PRACK | METHOD_UPDATE
+					   | METHOD_NOTIFY))
+			&& !subscribe_notify && stsd.b_contact.len <= 0) {
+		/* No B-side contact in an INVITE dialog: use its initial branch.
+		 * A NOTIFY in a SUBSCRIBE dialog can arrive before the 200 response
+		 * updates the B-side contact; its dialog A-side contact is already
+		 * usable and must not be replaced with transaction data. */
+		if(metid & (METHOD_BYE | METHOD_UPDATE | METHOD_NOTIFY)) {
 			/* detect direction - via from-tag */
 			if(tps_dlg_detect_direction(msg, &stsd, &direction) < 0) {
 				goto error;
@@ -848,11 +1197,16 @@ int tps_request_received(sip_msg_t *msg, int dialog)
 			goto error;
 		}
 		mtsd.direction = direction;
-		memset(&stsd, 0, sizeof(tps_data_t));
-		if(tps_storage_load_branch(msg, &mtsd, &stsd, 1) < 0) {
+		ret = tps_storage_load_branch(msg, &mtsd, &btsd, 1);
+		if(ret < 0) {
 			goto error;
 		}
-		use_branch = 1;
+		if(ret == 0) {
+			stsd = btsd;
+			use_branch = 1;
+		} else {
+			LM_DBG("initial branch record not found - using dialog record\n");
+		}
 	} else {
 		/* detect direction - via from-tag */
 		if(tps_dlg_detect_direction(msg, &stsd, &direction) < 0) {
@@ -861,10 +1215,9 @@ int tps_request_received(sip_msg_t *msg, int dialog)
 		mtsd.direction = direction;
 	}
 
-
 	tps_storage_lock_release(&lkey);
 
-	if(use_branch) {
+	if(use_branch && direction == TPS_DIR_DOWNSTREAM) {
 		nuri = stsd.b_contact;
 	} else {
 		if(direction == TPS_DIR_UPSTREAM) {
@@ -873,27 +1226,63 @@ int tps_request_received(sip_msg_t *msg, int dialog)
 			nuri = stsd.b_contact;
 		}
 	}
-	if(nuri.len>0) {
-		if(rewrite_uri(msg, &nuri)<0) {
+	if(nuri.len > 0) {
+		if(rewrite_uri(msg, &nuri) < 0) {
 			LM_ERR("failed to update r-uri\n");
 			return -1;
 		} else {
 			LM_DBG("r-uri updated to: [%.*s]\n", nuri.len, nuri.s);
 		}
+	} else if(_tps_dlg_mode && (mtsd.a_uuid.len > 0 || mtsd.b_uuid.len > 0)) {
+		/* unmask-miss: dialog loaded but the near contact is empty */
+		LM_WARN("unmask miss, near contact empty: call_id=%.*s method=%.*s "
+				"cseq=%.*s dir=%s use_branch=%d um_has_owner=%d "
+				"a_contact_len=%d b_contact_len=%d r-uri=%.*s left masked\n",
+				msg->callid->body.len, msg->callid->body.s,
+				get_cseq(msg)->method.len, get_cseq(msg)->method.s,
+				get_cseq(msg)->number.len, get_cseq(msg)->number.s,
+				(direction == TPS_DIR_UPSTREAM) ? "upstream" : "downstream",
+				use_branch, um_has_owner, stsd.a_contact.len,
+				stsd.b_contact.len, msg->first_line.u.request.uri.len,
+				msg->first_line.u.request.uri.s);
+
+		if(um_has_owner) {
+			tps_add_headers(msg, &_tps_owner_hname, &oduri, 0);
+		}
+
+		/* return here on purpose; keep the request masked and skip topos */
+		return 0;
+	}
+	if(tps_unmask_refer_to(msg, &stsd, direction) < 0) {
+		LM_ERR("failed to update Refer-To header\n");
+		return -1;
 	}
 
 	if(use_branch) {
-		if(tps_reappend_route(msg, &stsd, &stsd.s_rr, 1) < 0) {
+		LM_DBG("use branch for routing information, request from direction "
+			   "%d\n",
+				direction);
+		if(tps_reappend_route(msg, &stsd, &stsd.s_rr,
+				   (direction == TPS_DIR_UPSTREAM) ? 0 : 1)
+				< 0) {
 			LM_ERR("failed to reappend s-route\n");
 			return -1;
 		}
-		if(tps_reappend_route(msg, &stsd, &stsd.y_rr, 1) < 0) {
-			LM_ERR("failed to reappend b-route\n");
-			return -1;
+		if(direction == TPS_DIR_UPSTREAM) {
+			if(tps_reappend_route(msg, &stsd, &stsd.x_rr, 0) < 0) {
+				LM_ERR("failed to reappend a-route\n");
+				return -1;
+			}
+		} else {
+			if(tps_reappend_route(msg, &stsd, &stsd.y_rr, 1) < 0) {
+				LM_ERR("failed to reappend b-route\n");
+				return -1;
+			}
 		}
 	} else {
 		if(tps_reappend_route(msg, &stsd, &stsd.s_rr,
-					(direction == TPS_DIR_UPSTREAM) ? 0 : 1) < 0) {
+				   (direction == TPS_DIR_UPSTREAM) ? 0 : 1)
+				< 0) {
 			LM_ERR("failed to reappend s-route\n");
 			return -1;
 		}
@@ -909,17 +1298,87 @@ int tps_request_received(sip_msg_t *msg, int dialog)
 			}
 		}
 	}
-	if(dialog!=0) {
-		tps_append_xuuid(msg, &stsd.a_uuid);
+	if(dialog != 0) {
+		if(stsd.a_uuid.len > 0) {
+			tps_append_xuuid(msg, &stsd.a_uuid);
+		} else if(stsd.b_uuid.len > 0) {
+			/* stored record has no a-side uuid (e.g., dialog created without
+			 * a-side local contact) - link via the b-side uuid so outgoing
+			 * processing can still load the dialog record and detect the
+			 * direction; otherwise the no-x-uuid fallback in
+			 * tps_request_sent() assumes downstream and wrongly masks the
+			 * Call-ID of in-dialog ACKs relayed upstream */
+			tps_append_xuuid(msg, &stsd.b_uuid);
+		} else if(dlg_found && mtsd.a_uuid.len > 0) {
+			/* record found but carries no uuid values (e.g., branch record
+			 * loaded on the no-b-contact fallback path) - use the r-uri
+			 * token that keyed the dialog lookup; when no record was found,
+			 * append nothing so the outgoing side keeps the stateless
+			 * cover behavior for local ACK/CANCEL */
+			tps_append_xuuid(msg, &mtsd.a_uuid);
+		}
 		if(_tps_rr_update) {
-			if(tps_storage_update_dialog(msg, &mtsd, &stsd, TPS_DBU_RPLATTRS|TPS_DBU_BRR)<0) {
+			if(tps_storage_update_dialog(
+					   msg, &mtsd, &stsd, TPS_DBU_RPLATTRS | TPS_DBU_BRR)
+					< 0) {
 				goto error;
 			}
 		}
-		if((get_cseq(msg)->method_id)&(METHOD_SUBSCRIBE)) {
-			if(tps_storage_update_dialog(msg, &mtsd, &stsd, TPS_DBU_CONTACT|TPS_DBU_TIME)<0) {
+		if(metid & _tps_methods_update_time) {
+			if(tps_storage_update_dialog(
+					   msg, &mtsd, &stsd, TPS_DBU_CONTACT | TPS_DBU_TIME)
+					< 0) {
 				goto error;
 			}
+		}
+
+		/* refresh topology */
+		if(_tps_sn_refresh_topology && !(metid & METHOD_OPTIONS)) {
+
+			/* reset all interesting headers needed for refresh */
+			mtsd.s_rr.s = mtsd.as_contact.s = mtsd.bs_contact.s = 0;
+			mtsd.s_rr.len = mtsd.as_contact.len = mtsd.bs_contact.len = 0;
+
+			if(stsd.s_rr.len > 0
+					&& parse_rr_body(stsd.s_rr.s, stsd.s_rr.len, &srr) < 0) {
+				LM_ERR("failed to parse stored s_rr [%.*s]\n", stsd.s_rr.len,
+						stsd.s_rr.s);
+				srr = NULL;
+			}
+
+			/* refresh mtsd's s_rr */
+			tps_refresh_srr_from_sn(&mtsd, srr);
+			if(mtsd.s_rr.len > 0) {
+				up_mode |= TPS_DBU_SRR;
+			}
+
+			/* refresh mtsd's as/bs contacts */
+			tps_refresh_scontacts_from_sn(&mtsd, &stsd, srr);
+			if(mtsd.as_contact.len > 0 || mtsd.bs_contact.len > 0) {
+				up_mode |= TPS_DBU_SCONTACT;
+			}
+
+			/* store mtsd's s_rr/as/bs contacts if refreshed */
+			if(up_mode != 0) {
+				LM_DBG("dialog refresh call_id=%.*s method=%.*s cseq=%.*s: "
+					   "do persist, mode=0x%x\n",
+						msg->callid->body.len, msg->callid->body.s,
+						get_cseq(msg)->method.len, get_cseq(msg)->method.s,
+						get_cseq(msg)->number.len, get_cseq(msg)->number.s,
+						up_mode);
+				if(tps_storage_update_dialog(msg, &mtsd, &stsd, up_mode) < 0) {
+					free_rr(&srr);
+					goto error;
+				}
+			} else {
+				LM_DBG("dialog refresh call_id=%.*s method=%.*s cseq=%.*s: "
+					   "skip persist\n",
+						msg->callid->body.len, msg->callid->body.s,
+						get_cseq(msg)->method.len, get_cseq(msg)->method.s,
+						get_cseq(msg)->number.len, get_cseq(msg)->number.s);
+			}
+
+			free_rr(&srr);
 		}
 	}
 	return 0;
@@ -946,34 +1405,38 @@ int tps_response_received(sip_msg_t *msg)
 	memset(&stsd, 0, sizeof(tps_data_t));
 	memset(&btsd, 0, sizeof(tps_data_t));
 
-	lkey = msg->callid->body;
+	tps_unmask_callid(msg);
 
-	if(tps_pack_message(msg, &mtsd)<0) {
+	if(tps_pack_message(msg, &mtsd) < 0) {
 		LM_ERR("failed to extract and pack the headers\n");
 		return -1;
 	}
+	lkey = msg->callid->body;
+
 	tps_storage_lock_get(&lkey);
-	if(tps_storage_load_branch(msg, &mtsd, &btsd, 0)<0) {
+	if(tps_storage_load_branch(msg, &mtsd, &btsd, 0) < 0) {
 		goto error;
 	}
-	LM_DBG("loaded dialog a_uuid [%.*s]\n",
-			btsd.a_uuid.len, ZSW(btsd.a_uuid.s));
-	if(tps_storage_load_dialog(msg, &btsd, &stsd)<0) {
+	LM_DBG("loaded dialog a_uuid [%.*s]\n", btsd.a_uuid.len,
+			ZSW(btsd.a_uuid.s));
+	if(tps_storage_load_dialog(msg, &btsd, &stsd) < 0) {
 		goto error;
 	}
 
 	/* detect direction - via from-tag */
-	if(tps_dlg_detect_direction(msg, &stsd, &direction)<0) {
+	if(tps_dlg_detect_direction(msg, &stsd, &direction) < 0) {
 		goto error;
 	}
 	mtsd.direction = direction;
-	if(tps_storage_update_branch(msg, &mtsd, &btsd,
-				TPS_DBU_CONTACT|TPS_DBU_RPLATTRS)<0) {
+	if(tps_storage_update_branch(
+			   msg, &mtsd, &btsd, TPS_DBU_CONTACT | TPS_DBU_RPLATTRS)
+			< 0) {
 		goto error;
 	}
 	if(tps_storage_update_dialog(msg, &mtsd, &stsd,
-			(_tps_rr_update)?(TPS_DBU_RPLATTRS|TPS_DBU_BRR|TPS_DBU_ARR)
-					:TPS_DBU_RPLATTRS)<0) {
+			   (_tps_rr_update) ? (TPS_DBU_RPLATTRS | TPS_DBU_BRR | TPS_DBU_ARR)
+								: TPS_DBU_RPLATTRS)
+			< 0) {
 		goto error;
 	}
 	tps_storage_lock_release(&lkey);
@@ -982,6 +1445,14 @@ int tps_response_received(sip_msg_t *msg)
 	tps_reappend_rr(msg, &btsd, &btsd.s_rr);
 	tps_reappend_rr(msg, &btsd, &btsd.x_rr);
 	tps_append_xbranch(msg, &mtsd.x_vbranch1);
+
+	if(msg->first_line.u.reply.statuscode > 299
+			&& (get_cseq(msg)->method_id
+					& (METHOD_INVITE | METHOD_SUBSCRIBE))) {
+		LM_DBG("%d reply end dialog storage\n",
+				msg->first_line.u.reply.statuscode);
+		tps_storage_end_dialog(msg, &mtsd, &stsd);
+	}
 
 	return 0;
 
@@ -1010,14 +1481,28 @@ int tps_request_sent(sip_msg_t *msg, int dialog, int local)
 	memset(&stsd, 0, sizeof(tps_data_t));
 	ptsd = NULL;
 
-	if(tps_pack_message(msg, &mtsd)<0) {
+	if(tps_pack_message(msg, &mtsd) < 0) {
 		LM_ERR("failed to extract and pack the headers\n");
 		return -1;
 	}
 
-	if(dialog!=0) {
-		if(tps_get_xuuid(msg, &xuuid)<0) {
-			LM_DBG("no x-uuid header - nothing to do\n");
+	if(dialog != 0) {
+		if(tps_get_xuuid(msg, &xuuid) < 0) {
+			LM_DBG("no x-uuid header - local message only - Call-ID mask if "
+				   "downstream \n");
+			if(get_cseq(msg)->method_id == METHOD_ACK
+					|| get_cseq(msg)->method_id == METHOD_CANCEL) {
+				/* cover stateless forwarding */
+				tps_remove_headers(msg, HDR_RECORDROUTE_T);
+				tps_remove_headers(msg, HDR_CONTACT_T);
+				tps_remove_headers(msg, HDR_VIA_T);
+				tps_reinsert_via(msg, &mtsd, &mtsd.x_via1);
+				/* locally generated (hop-by-hop) ACK and CANCEL are assumed
+				 * to go downstream so Call-ID mask is applied - heuristic,
+				 * known-wrong for local ACKs to negative replies of b-side
+				 * requests, where server transactions match by via branch */
+				tps_mask_callid(msg);
+			}
 			return 0;
 		}
 		mtsd.a_uuid = xuuid;
@@ -1028,33 +1513,34 @@ int tps_request_sent(sip_msg_t *msg, int dialog, int local)
 
 	tps_storage_lock_get(&lkey);
 
-	if(dialog!=0) {
-		if(tps_storage_load_dialog(msg, &mtsd, &stsd)==0) {
+	if(dialog != 0) {
+		if(tps_storage_load_dialog(msg, &mtsd, &stsd) == 0) {
 			ptsd = &stsd;
 		}
 		/* detect direction - via from-tag */
-		if(tps_dlg_detect_direction(msg, &stsd, &direction)<0) {
+		if(tps_dlg_detect_direction(msg, &stsd, &direction) < 0) {
 			goto error;
 		}
 		mtsd.direction = direction;
 	}
 
-	if(tps_storage_load_branch(msg, &mtsd, &btsd, 0)!=0) {
-		if(tps_storage_record(msg, &mtsd, dialog, direction)<0) {
+	if(tps_storage_load_branch(msg, &mtsd, &btsd, 0) != 0) {
+		if(tps_storage_record(msg, &mtsd, dialog, direction) < 0) {
 			goto error;
 		}
 	} else {
-		if(ptsd==NULL) ptsd = &btsd;
+		if(ptsd == NULL)
+			ptsd = &btsd;
 	}
 
-	if(ptsd==NULL) ptsd = &mtsd;
+	if(ptsd == NULL)
+		ptsd = &mtsd;
 
 	/* local generated requests */
 	if(local) {
 		/* ACK and CANCEL go downstream */
-		if(get_cseq(msg)->method_id==METHOD_ACK
-				|| get_cseq(msg)->method_id==METHOD_CANCEL
-				|| local==2) {
+		if(get_cseq(msg)->method_id == METHOD_ACK
+				|| get_cseq(msg)->method_id == METHOD_CANCEL || local == 2) {
 			// ts_mask_callid(&msg);
 			goto done;
 		} else {
@@ -1064,27 +1550,41 @@ int tps_request_sent(sip_msg_t *msg, int dialog, int local)
 	}
 
 	tps_remove_headers(msg, HDR_RECORDROUTE_T);
-	tps_remove_headers(msg, HDR_CONTACT_T);
+	/* keep the original Contact when there is no stored surrogate contact
+	 * to reinsert (e.g., record created without that leg's local contact) -
+	 * a request without any Contact is worse than an unmasked one; still
+	 * strip it for the methods that do not use Contact at all */
+	if((get_cseq(msg)->method_id & _tps_methods_nocontact)
+			|| ((direction == TPS_DIR_UPSTREAM) ? ptsd->as_contact.len
+												: ptsd->bs_contact.len)
+					   > 0) {
+		tps_remove_headers(msg, HDR_CONTACT_T);
+	}
 	tps_remove_headers(msg, HDR_VIA_T);
 
 	tps_reinsert_via(msg, &mtsd, &mtsd.x_via1);
-	if(direction==TPS_DIR_UPSTREAM) {
+	if(direction == TPS_DIR_UPSTREAM) {
 		tps_reinsert_contact(msg, ptsd, &ptsd->as_contact);
 	} else {
 		tps_reinsert_contact(msg, ptsd, &ptsd->bs_contact);
 	}
 
-	if(dialog!=0) {
+	if(dialog != 0) {
 		tps_storage_end_dialog(msg, &mtsd, ptsd);
 		if(tps_storage_update_dialog(msg, &mtsd, &stsd,
-					(_tps_rr_update)?(TPS_DBU_CONTACT|TPS_DBU_ARR)
-						:TPS_DBU_CONTACT)<0) {
+				   (_tps_rr_update) ? (TPS_DBU_CONTACT | TPS_DBU_ARR)
+									: TPS_DBU_CONTACT)
+				< 0) {
 			goto error;
 		}
 	}
 
 done:
 	tps_storage_lock_release(&lkey);
+	if(direction == TPS_DIR_DOWNSTREAM) {
+		tps_mask_callid(msg);
+	}
+
 	return 0;
 
 error:
@@ -1111,19 +1611,19 @@ int tps_response_sent(sip_msg_t *msg)
 	memset(&stsd, 0, sizeof(tps_data_t));
 	memset(&btsd, 0, sizeof(tps_data_t));
 
-	if(tps_get_xbranch(msg, &xvbranch)<0) {
+	if(tps_get_xbranch(msg, &xvbranch) < 0) {
 		LM_DBG("no x-branch header - nothing to do\n");
 		return 0;
 	}
 
-	if(tps_pack_message(msg, &mtsd)<0) {
+	if(tps_pack_message(msg, &mtsd) < 0) {
 		LM_ERR("failed to extract and pack the headers\n");
 		return -1;
 	}
 	mtsd.x_vbranch1 = xvbranch;
 	tps_remove_xbranch(msg);
 
-	if(get_cseq(msg)->method_id==METHOD_MESSAGE) {
+	if(get_cseq(msg)->method_id == METHOD_MESSAGE) {
 		tps_remove_headers(msg, HDR_RECORDROUTE_T);
 		tps_remove_headers(msg, HDR_CONTACT_T);
 		return 0;
@@ -1132,18 +1632,18 @@ int tps_response_sent(sip_msg_t *msg)
 	lkey = msg->callid->body;
 
 	tps_storage_lock_get(&lkey);
-	if(tps_storage_load_branch(msg, &mtsd, &btsd, 0)<0) {
+	if(tps_storage_load_branch(msg, &mtsd, &btsd, 0) < 0) {
 		goto error;
 	}
-	LM_DBG("loaded branch a_uuid [%.*s]\n",
-			btsd.a_uuid.len, ZSW(btsd.a_uuid.s));
-	if(tps_storage_load_dialog(msg, &btsd, &stsd)<0) {
+	LM_DBG("loaded branch a_uuid [%.*s]\n", btsd.a_uuid.len,
+			ZSW(btsd.a_uuid.s));
+	if(tps_storage_load_dialog(msg, &btsd, &stsd) < 0) {
 		goto error;
 	}
 	tps_storage_lock_release(&lkey);
 
 	/* detect direction - via from-tag */
-	if(tps_dlg_detect_direction(msg, &stsd, &direction)<0) {
+	if(tps_dlg_detect_direction(msg, &stsd, &direction) < 0) {
 		goto error1;
 	}
 	mtsd.direction = direction;
@@ -1151,18 +1651,31 @@ int tps_response_sent(sip_msg_t *msg)
 	tps_remove_headers(msg, HDR_RECORDROUTE_T);
 
 	/* keep contact without updates for redirect responses sent out */
-	if(msg->first_line.u.reply.statuscode>=300
-			&& msg->first_line.u.reply.statuscode<400) {
+	if(msg->first_line.u.reply.statuscode >= 300
+			&& msg->first_line.u.reply.statuscode < 400) {
 		contact_keep = 1;
 	}
-	if(contact_keep==0 && msg->first_line.u.reply.statuscode>100
-				&& msg->first_line.u.reply.statuscode<200
-				&& msg->contact==NULL) {
+	if(contact_keep == 0 && msg->first_line.u.reply.statuscode > 100
+			&& msg->first_line.u.reply.statuscode < 200
+			&& msg->contact == NULL) {
 		contact_keep = 1;
 	}
-	if(contact_keep==0) {
+	if(contact_keep == 0 && msg->first_line.u.reply.statuscode >= 400
+			&& msg->first_line.u.reply.statuscode < 500
+			&& msg->contact == NULL) {
+		contact_keep = 1;
+	}
+	if(contact_keep == 0
+			&& ((direction == TPS_DIR_DOWNSTREAM) ? stsd.as_contact.len
+												  : stsd.bs_contact.len)
+					   <= 0) {
+		/* no stored surrogate contact to reinsert (e.g., record created
+		 * without that leg's local contact) - keep the original one */
+		contact_keep = 1;
+	}
+	if(contact_keep == 0) {
 		tps_remove_headers(msg, HDR_CONTACT_T);
-		if(direction==TPS_DIR_DOWNSTREAM) {
+		if(direction == TPS_DIR_DOWNSTREAM) {
 			tps_reinsert_contact(msg, &stsd, &stsd.as_contact);
 		} else {
 			tps_reinsert_contact(msg, &stsd, &stsd.bs_contact);
@@ -1170,11 +1683,15 @@ int tps_response_sent(sip_msg_t *msg)
 	}
 
 	tps_reappend_rr(msg, &btsd, &btsd.x_rr);
-	if(tps_storage_update_branch(msg, &mtsd, &btsd, TPS_DBU_CONTACT)<0) {
+	if(tps_storage_update_branch(msg, &mtsd, &btsd, TPS_DBU_CONTACT) < 0) {
 		goto error;
 	}
-	if(tps_storage_update_dialog(msg, &mtsd, &stsd, TPS_DBU_CONTACT)<0) {
+	if(tps_storage_update_dialog(msg, &mtsd, &stsd, TPS_DBU_CONTACT) < 0) {
 		goto error1;
+	}
+
+	if(direction == TPS_DIR_UPSTREAM) {
+		tps_mask_callid(msg);
 	}
 	return 0;
 

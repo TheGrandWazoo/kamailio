@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -160,12 +162,10 @@ int bla_handle_notify(struct sip_msg *msg, char *s1, char *s2)
 		LM_ERR("content length= 0\n");
 		goto error;
 	} else {
-		body.s = get_body(msg);
-		if(body.s == NULL) {
+		if(get_body_str(msg, &body) < 0) {
 			LM_ERR("cannot extract body from msg\n");
 			goto error;
 		}
-		body.len = get_content_length(msg);
 	}
 
 	if(msg->contact == NULL || msg->contact->body.s == NULL) {
@@ -184,6 +184,10 @@ int bla_handle_notify(struct sip_msg *msg, char *s1, char *s2)
 	contact = ((contact_body_t *)msg->contact->parsed)->contacts->uri;
 
 	/* build extra_headers with Sender*/
+	if(header_name.len + 2 + contact.len + CRLF_LEN > sizeof(buf)) {
+		LM_ERR("extra headers too long\n");
+		goto error;
+	}
 	extra_headers.s = buf;
 	memcpy(extra_headers.s, header_name.s, header_name.len);
 	extra_headers.len = header_name.len;
@@ -206,7 +210,6 @@ int bla_handle_notify(struct sip_msg *msg, char *s1, char *s2)
 	}
 
 	xmlCleanupParser();
-	xmlMemoryDump();
 
 	free_to_params(&TO);
 	return 1;

@@ -4,6 +4,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -41,9 +43,8 @@
 #include "../../core/parser/parse_content.h"
 #include "../../core/parser/parser_f.h"
 #include "../../core/parser/sdp/sdp_helpr_funcs.h"
+#include "../../core/parser/parse_bytes.h"
 
-#define READ(val) \
-	(*(val + 0) + (*(val + 1) << 8) + (*(val + 2) << 16) + (*(val + 3) << 24))
 #define advance(_ptr, _n, _str, _error)           \
 	do {                                          \
 		if((_ptr) + (_n) > (_str).s + (_str).len) \
@@ -109,15 +110,15 @@ int check_content_type(struct sip_msg *msg)
 	}
 	p = str_type.s;
 	advance(p, 4, str_type, error_1);
-	x = READ(p - 4);
+	x = ksr_read_u32le(p - 4);
 	if(!one_of_16(x, appl))
 		goto other;
 	advance(p, 4, str_type, error_1);
-	x = READ(p - 4);
+	x = ksr_read_u32le(p - 4);
 	if(!one_of_16(x, icat))
 		goto other;
 	advance(p, 3, str_type, error_1);
-	x = READ(p - 3) & 0x00ffffff;
+	x = ksr_read_u24le(p - 3);
 	if(!one_of_8(x, ion_))
 		goto other;
 
@@ -133,7 +134,7 @@ int check_content_type(struct sip_msg *msg)
 		advance(p, 1, str_type, error_1);
 
 	advance(p, 3, str_type, error_1);
-	x = READ(p - 3) & 0x00ffffff;
+	x = ksr_read_u24le(p - 3);
 	if(!one_of_8(x, sdp_))
 		goto other;
 
@@ -176,8 +177,8 @@ int extract_body(struct sip_msg *msg, str *body)
 
 	/*
 	 * Better use the content-len value - no need of any explicit
-	 * parcing as get_body() parsed all headers and Conten-Length
-	 * body header is automaticaly parsed when found.
+	 * parsing as get_body() parsed all headers and Content-Length
+	 * body header is automatically parsed when found.
 	 */
 	if(msg->content_length == 0) {
 		LM_ERR("failed to get the content length in message\n");
@@ -283,11 +284,23 @@ done:
  */
 int get_contact_uri(struct sip_msg *_m, struct sip_uri *uri, contact_t **_c)
 {
-	if((parse_headers(_m, HDR_CONTACT_F, 0) == -1) || !_m->contact)
-		return -1;
+	if(!_m->contact) {
+		if(parse_headers(_m, HDR_CONTACT_F, 0) == -1) {
+			LM_ERR("while parsing headers\n");
+			return -1;
+		}
+		if(!_m->contact) {
+			LM_DBG("no Contact header\n");
+			return -2;
+		}
+	}
 	if(!_m->contact->parsed && parse_contact(_m->contact) < 0) {
 		LM_ERR("failed to parse Contact body\n");
 		return -1;
+	}
+	if(((contact_body_t *)_m->contact->parsed)->star == 1) {
+		LM_DBG("star Contact header\n");
+		return -3;
 	}
 	*_c = ((contact_body_t *)_m->contact->parsed)->contacts;
 	if(*_c == NULL)

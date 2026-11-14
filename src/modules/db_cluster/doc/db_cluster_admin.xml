@@ -204,9 +204,10 @@ modparam("db_cluster", "max_query_length", 5)
 		<programlisting format="linespecific">
 ...
 modparam("db_cluster", "connection",
-             "c1=&gt;&defaultdb;1")
+             "c1=&gt;mysql://kamailio:kamailiorw@localhost/kamailio1")
 modparam("db_cluster", "connection",
-             "c2=&gt;&defaultdb;2")
+             "c2=&gt;mysql://kamailio:kamailiorw@remotehost/kamailio2")
+
 modparam("db_cluster", "cluster", "k1=&gt;c1=9r9p;c2=9r9p")
 
 modparam("acc", "db_url", "cluster://k1")
@@ -226,7 +227,7 @@ modparam("sqlops", "sqlcon", "ca=&gt;cluster://k1")
         <para>RPC Command Format:</para>
         <programlisting  format="linespecific">
 ...
-&kamcmd; dbcl.list_clusters
+&kamctl; rpc dbcl.list_clusters
 ...
         </programlisting>
         </section>
@@ -238,7 +239,7 @@ modparam("sqlops", "sqlcon", "ca=&gt;cluster://k1")
         <para>RPC Command Format:</para>
         <programlisting  format="linespecific">
 ...
-&kamcmd; dbcl.list_connections clustername
+&kamctl; rpc dbcl.list_connections clustername
 ...
         </programlisting>
         </section>
@@ -255,7 +256,7 @@ modparam("sqlops", "sqlcon", "ca=&gt;cluster://k1")
         <para>RPC Command Format:</para>
         <programlisting  format="linespecific">
 ...
-&kamcmd; dbcl.disable_connection clustername connectionname period
+&kamctl; rpc dbcl.disable_connection clustername connectionname period
 ...
         </programlisting>
         </section>
@@ -269,7 +270,7 @@ modparam("sqlops", "sqlcon", "ca=&gt;cluster://k1")
         <para>RPC Command Format:</para>
         <programlisting  format="linespecific">
 ...
-&kamcmd; dbcl.enable_connection clustername connectionname
+&kamctl; rpc dbcl.enable_connection clustername connectionname
 ...
         </programlisting>
         </section>
@@ -278,4 +279,3 @@ modparam("sqlops", "sqlcon", "ca=&gt;cluster://k1")
 	</section>
 
 </chapter>
-

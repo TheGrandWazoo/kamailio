@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -31,10 +33,22 @@
 // is important not to use generate ID which is still in use. For this reason there are
 // acquire_spi() and release_spi(uint32_t id) functions.
 
-int init_spi_gen(uint32_t start_val, uint32_t range);
+int init_spi_gen(uint32_t spi_start_val, uint32_t spi_range,
+		uint32_t sport_start_val, uint32_t cport_start_val,
+		uint32_t port_range);
 int clean_spi_list();
 int destroy_spi_gen();
-uint32_t acquire_spi();
-int release_spi(uint32_t id);
+uint32_t acquire_spi(uint32_t *spi_cid, uint32_t *spi_sid, uint16_t *cport,
+		uint16_t *sport, uint16_t avoid_a, uint16_t avoid_b);
+// Whether the port ranges leave, for any pair acquire_spi() hands out, ports
+// for another pair apart from it
+int spi_ports_apart(uint32_t sport_start_val, uint32_t cport_start_val,
+		uint32_t port_range);
+int release_spi(
+		uint32_t spi_cid, uint32_t spi_sid, uint16_t cport, uint16_t sport);
+// The received port of the contact an acquired pair was offered to, kept
+// until the pair is released (0 for none)
+int spi_set_owner(uint32_t spi_cid, uint32_t spi_sid, uint16_t owner);
+uint16_t spi_get_owner(uint32_t spi_cid, uint32_t spi_sid);
 
 #endif /*  _SPI_GEN_H_ */

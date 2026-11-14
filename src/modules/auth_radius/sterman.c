@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -65,7 +67,7 @@ static inline int extract_avp(
 	char *p, *q, *r;
 
 	LM_DBG("vp->name '%.*s'\n", (int)strlen(vp->name), vp->name);
-	LM_DBG("vp->attribute '%d'\n", vp->attribute);
+	LM_DBG("vp->attribute '%d'\n", (int)vp->attribute);
 	LM_DBG("vp->type '%d'\n", vp->type);
 	LM_DBG("vp->lvalue '%d'\n", vp->lvalue);
 	if(vp->type == PW_TYPE_STRING)
@@ -94,7 +96,7 @@ static inline int extract_avp(
 			name->s.s = vp->strvalue;
 			value->n = strtol(++p, &r, 10);
 		} else if(p && r && p != r && !q) {
-			/* int name and int vale */
+			/* int name and int value */
 			name->n = strtol(++p, &q, 10);
 			value->n = strtol(++r, &q, 10);
 		} else if((!p || p > q) && q) {
@@ -160,7 +162,7 @@ static int generate_avps(VALUE_PAIR *received)
 		if(add_avp(flags, name, val) < 0) {
 			LM_ERR("unable to create a new AVP\n");
 		} else {
-			LM_DBG("AVP '%.*s'/%d='%.*s'/%d has been added\n",
+			LM_DBG("AVP '%.*s'/%ld='%.*s'/%ld has been added\n",
 					(flags & AVP_NAME_STR) ? name.s.len : 4,
 					(flags & AVP_NAME_STR) ? name.s.s : "null",
 					(flags & AVP_NAME_STR) ? 0 : name.n,
@@ -227,6 +229,9 @@ int radius_authorize_sterman(
 	str method, user, user_name;
 	str *ruri;
 	int extra_cnt, offset, i;
+	size_t uname_len;
+	size_t realm_len;
+	size_t user_name_len;
 
 	send = received = 0;
 
@@ -237,6 +242,13 @@ int radius_authorize_sterman(
 
 	method = *_method;
 	user = *_user;
+
+	if(_cred->username.whole.len < 0 || _cred->username.user.len < 0
+			|| _cred->username.domain.len < 0 || _cred->realm.len < 0
+			|| _cred->nonce.len < 0 || _cred->uri.len < 0) {
+		LM_ERR("invalid negative digest field length\n");
+		return -1;
+	}
 
 	/*
 	 * Add all the user digest parameters according to the qop defined.
@@ -249,16 +261,27 @@ int radius_authorize_sterman(
 			goto err;
 		}
 	} else {
-		user_name.len = _cred->username.user.len + _cred->realm.len + 1;
-		user_name.s = pkg_malloc(user_name.len);
+		if(_cred->username.user.s == NULL || _cred->realm.s == NULL) {
+			LM_ERR("invalid digest username or realm value\n");
+			return -1;
+		}
+		uname_len = (size_t)_cred->username.user.len;
+		realm_len = (size_t)_cred->realm.len;
+		if(uname_len > (size_t)MAX_URI_SIZE
+				|| realm_len > (size_t)MAX_URI_SIZE) {
+			LM_ERR("digest username/realm too large\n");
+			return -1;
+		}
+		user_name_len = uname_len + realm_len + 1;
+		user_name.len = (int)user_name_len;
+		user_name.s = pkg_mallocxz(user_name_len + 1);
 		if(!user_name.s) {
 			LM_ERR("no pkg memory left\n");
 			return -3;
 		}
-		memcpy(user_name.s, _cred->username.whole.s, _cred->username.whole.len);
-		user_name.s[_cred->username.whole.len] = '@';
-		memcpy(user_name.s + _cred->username.whole.len + 1, _cred->realm.s,
-				_cred->realm.len);
+		memcpy(user_name.s, _cred->username.user.s, uname_len);
+		user_name.s[uname_len] = '@';
+		memcpy(user_name.s + uname_len + 1, _cred->realm.s, realm_len);
 		if(!rc_avpair_add(rh, &send, attrs[A_USER_NAME].v, user_name.s,
 				   user_name.len, 0)) {
 			LM_ERR("unable to add User-Name attribute\n");
@@ -302,7 +325,7 @@ int radius_authorize_sterman(
 		goto err;
 	}
 
-	/* 
+	/*
 	 * Add the additional authentication fields according to the QOP.
 	 */
 	if(_cred->qop.qop_parsed == QOP_AUTH) {

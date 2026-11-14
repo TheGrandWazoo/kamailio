@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -35,12 +37,48 @@
 #include "../mem/mem.h"
 
 
-char *parse_to(char *const buffer, const char *const end,
-		struct to_body *const to_b)
+char *parse_to_body_ex(char *const buffer, const char *const end,
+		struct hdr_field *const hdr, int *parse_rc)
+{
+	char *tmp = NULL;
+	struct to_body *to_b = NULL;
+
+	if(parse_rc)
+		*parse_rc = E_UNSPEC;
+	tmp = buffer;
+	to_b = pkg_malloc(sizeof(struct to_body));
+	if(to_b == 0) {
+		PKG_MEM_ERROR;
+		if(parse_rc)
+			*parse_rc = E_OUT_OF_MEM;
+		goto error;
+	}
+	memset(to_b, 0, sizeof(struct to_body));
+	hdr->body.s = tmp;
+	tmp = parse_addr_spec_ex(tmp, end, to_b, 0, parse_rc);
+	if(to_b->error == PARSE_ERROR) {
+		ERR("bad to header\n");
+		free_to(to_b);
+		goto error;
+	}
+	hdr->parsed = to_b;
+	hdr->body.len = tmp - hdr->body.s;
+	return tmp;
+error:
+	return NULL;
+}
+
+char *parse_to_body(
+		char *const buffer, const char *const end, struct hdr_field *const hdr)
+{
+	return parse_to_body_ex(buffer, end, hdr, NULL);
+}
+
+char *parse_to(
+		char *const buffer, const char *const end, struct to_body *const to_b)
 {
 	return parse_addr_spec(buffer, end, to_b, 0);
 }
-
 
 int parse_to_header(struct sip_msg *const msg)
 {

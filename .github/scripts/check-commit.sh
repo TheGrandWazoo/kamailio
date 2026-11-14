@@ -1,0 +1,133 @@
+#!/bin/bash
+COMMIT_MESSAGE_SUBJECT_FORMAT="%s"
+COMMIT_MESSAGE_BODY_FORMAT="%b"
+BODY_AI_CHECK="Copilot|Claude|Cursor|Codex|AI"
+
+set -eu
+
+res=0
+
+die() { echo "$@" >&2; exit 1; }
+fail() { echo "*** $@ ***" >&2; res=1; }
+
+git_log_format() {
+  local pattern="$1"
+  local reference="$2"
+  git log -1 --pretty=format:"$pattern" "$reference"
+}
+
+check_body() {
+  local commit="$1"
+  local body="$2"
+
+  # AI clutter
+  if echo "${body}" | grep -qiE "Co-authored-by:.*(${BODY_AI_CHECK})" ; then
+    fail "[${commit}] AI Co-Author detected"
+  fi
+  if echo "${body}" | grep -qiE "(${BODY_AI_CHECK})-session:.*" ; then
+    fail "[${commit}] AI session detected"
+  fi
+}
+
+check_subject() {
+  local commit="$1"
+  local subject="$2"
+
+  # special cases
+  if [[ "${subject}" =~ ^Revert\ .*$ ]] ; then
+    echo "[${commit}] is a git revert commit, OK[Revert]"
+    return
+  fi
+
+  # get the prefix
+  if ! [[ "${subject}" =~ ^([^:]+):.*$ ]] ; then
+    fail "[${commit}] prefix not detected:'${subject}'"
+    return
+  fi
+  prefix="${BASH_REMATCH[1]}"
+  if [ -z "${prefix}" ] ; then
+    fail "[${commit}] commit subject has no prefix:'${subject}'"
+    return
+  fi
+
+  # core or lib
+  if [ -d "src/${prefix}" ] ; then
+    echo "[${commit}] prefix is core or lib, OK[${prefix}]"
+    return
+  fi
+
+  # prefix is a module
+  if [ -d "src/modules/${prefix}" ] ; then
+    echo "[${commit}] prefix is module, OK[${prefix}]"
+    return
+  fi
+
+  # utils?
+  if [ -d "${prefix}" ] ; then
+    echo "[${commit}] prefix is a dir in the repo, OK[${prefix}]"
+    return
+  fi
+
+  # utils directory?
+  if [ -d "utils/${prefix}" ] ; then
+    echo "[${commit}] prefix is a utils dir in the repo, OK[${prefix}]"
+    return
+  fi
+
+  # file (e.g., ChangeLog, etc/kamailio.cfg)
+  if [ -f "${prefix}" ] ; then
+    echo "[${commit}] prefix is a file in the repo, OK[${prefix}]"
+    return
+  fi
+
+  # shortcut to src/ file (e.g., src/Makefile.defs)
+  if [ -f "src/${prefix}" ] ; then
+    echo "[${commit}] prefix is a file in the src repo, OK[${prefix}]"
+    return
+  fi
+
+  # github configs
+  if [[ "${prefix}" =~ ^github$ ]] ; then
+    echo "[${commit}] prefix is github config, OK[${prefix}]"
+    return
+  fi
+
+  # pre-commit config
+  if [[ "${prefix}" =~ ^pre-commit$ ]] ; then
+    echo "[${commit}] prefix is pre-commit config, OK[${prefix}]"
+    return
+  fi
+
+  fail "[${commit}] unknown prefix:'${prefix}'"
+}
+
+fetch_depth="${FETCH_DEPTH:-50}"
+target="${GITHUB_BASE_REF:-master}"
+if [ "${CI:-}" ]; then
+    git rev-parse -q --no-revs --verify "origin/${target}" || \
+        git rev-parse -q --no-revs --verify "${target}" || \
+        git fetch origin --depth=1 "${target}"
+    git rev-parse -q --no-revs --verify "origin/${target}" || \
+        git rev-parse -q --no-revs --verify "${target}" || \
+        git fetch origin --depth=1 tag "${target}"
+    # Ensure that the target revision has some history
+    target_sha=$(git rev-parse -q --verify "origin/${target}" || git rev-parse -q --verify "${target}")
+    git fetch -q "--depth=${fetch_depth}" origin "+${target_sha}"
+else
+    target_sha=$(git rev-parse -q --verify "${target}") || die "fatal: couldn't find ref ${target}"
+fi
+
+ref=${ref:-HEAD}
+# Ensure that the ref revision has some history
+git fetch -q "--depth=${fetch_depth}" origin "+${ref}"
+src_sha=$(git rev-parse -q --verify "${ref}") || die "fatal: couldn't find ref ${ref}"
+echo "Checking $(git rev-list --count "${src_sha}" "^${target_sha}") commits since revision ${target_sha}"
+for commit in $(git rev-list --reverse "${src_sha}" "^${target_sha}"); do
+  commit_message_subject=$(git_log_format "${COMMIT_MESSAGE_SUBJECT_FORMAT}" "${commit}")
+  check_subject "${commit}" "${commit_message_subject}"
+  commit_message_body=$(git_log_format "${COMMIT_MESSAGE_BODY_FORMAT}" "${commit}")
+  check_body "${commit}" "${commit_message_body}"
+done
+
+echo "Result: ${res}"
+exit $res

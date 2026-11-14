@@ -5,6 +5,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -163,7 +165,7 @@ enum
 	FIN_I,
 	FIN_ALIAS
 #ifdef USE_COMP
-	,
+			,
 	FIN_COMP
 #endif
 	/*GEN_PARAM,
@@ -238,7 +240,7 @@ static /*inline*/ char *parse_via_param(char *const p, const char *const end,
 				break;                                                        \
 			default:                                                          \
 				LM_ERR("invalid "                                             \
-						"char <%c> in state %d\n",                            \
+					   "char <%c> in state %d\n",                             \
 						*tmp, state);                                         \
 				goto error;                                                   \
 		}
@@ -502,7 +504,7 @@ static /*inline*/ char *parse_via_param(char *const p, const char *const end,
 					case FIN_COMP:
 #endif
 						LM_ERR("new via found"
-								"(',') when '=' expected (state %d=)\n",
+							   "(',') when '=' expected (state %d=)\n",
 								state);
 						goto error; /* or we could ignore this bad param*/
 					case F_CR:
@@ -940,7 +942,7 @@ static /*inline*/ char *parse_via_param(char *const p, const char *const end,
 
 find_value:
 	tmp++;
-	for(; tmp<end && *tmp; tmp++) {
+	for(; tmp < end && *tmp; tmp++) {
 		switch(*tmp) {
 			case ' ':
 			case '\t':
@@ -1090,7 +1092,7 @@ find_value:
 						state = F_COMP_VALUE;
 						break;
 /* '=' in any other COMP value state is an error,
-					 * and it will be catched by the default branch */
+					 * and it will be caught by the default branch */
 #endif
 					case P_STRING:
 						break;
@@ -1124,7 +1126,7 @@ find_value:
 #ifdef USE_COMP
 					case L_COMP_VALUE:
 						comp_unexpected_char;
-						/* we want to contine with no comp */
+						/* we want to continue with no comp */
 						state = F_PARAM;
 						param->value.len = 0;
 						param->value.s = 0;
@@ -1162,10 +1164,18 @@ find_value:
 			case ',':
 				switch(state) {
 					case P_VALUE:
+						if(param->flags & VIA_PARAM_F_QUOTED) {
+							/* inside a quoted value */
+							break;
+						}
 						param->value.len = tmp - param->value.s;
 						state = F_VIA;
 						goto endofvalue;
 					case P_STRING:
+						if(param->flags & VIA_PARAM_F_QUOTED) {
+							/* inside a quoted value */
+							break;
+						}
 					case F_LF:
 					case F_CR:
 					case F_CRLF:
@@ -1174,7 +1184,7 @@ find_value:
 #ifdef USE_COMP
 					case L_COMP_VALUE:
 						comp_unexpected_char;
-						/* we want to contine with no comp */
+						/* we want to continue with no comp */
 						state = F_VIA;
 						param->value.len = 0;
 						param->value.s = 0;
@@ -1217,6 +1227,7 @@ find_value:
 					case F_VALUE:
 						state = P_STRING;
 						param->value.s = tmp + 1;
+						param->flags |= VIA_PARAM_F_QUOTED;
 						break;
 					case P_STRING:
 						state = L_PARAM;
@@ -1334,8 +1345,8 @@ error:
  * returns: pointer after the parsed parts and sets vb->error
  * WARNING: don't forget to cleanup on error with free_via_list(vb)!
  */
-char *parse_via(
-		char *buffer, const char *const end, struct via_body *const vbody)
+char *parse_via_ex(char *buffer, const char *const end,
+		struct via_body *const vbody, int *parse_rc)
 {
 	char *tmp;
 	char *param_start;
@@ -1346,8 +1357,10 @@ char *parse_via(
 	struct via_body *vb;
 	struct via_param *param;
 
-	vb = vbody; /* keep orignal vbody value, needed to set the error member
+	vb = vbody; /* keep original vbody value, needed to set the error member
 				* in case of multiple via bodies in the same header */
+	if(parse_rc)
+		*parse_rc = E_UNSPEC;
 parse_again:
 	vb->error = PARSE_ERROR;
 	/* parse start of via ( SIP/2.0/UDP    )*/
@@ -2064,7 +2077,7 @@ main_via:
 	tmp++;
 	c_nest = 0;
 	/*state should always be F_HOST here*/;
-	for(; tmp<end && *tmp; tmp++) {
+	for(; tmp < end && *tmp; tmp++) {
 		switch(*tmp) {
 			case ' ':
 			case '\t':
@@ -2073,7 +2086,8 @@ main_via:
 						break;
 					case P_HOST:
 						/*mark end of host*/
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						state = L_PORT;
 						break;
 					case L_PORT: /*eat the spaces*/
@@ -2081,7 +2095,8 @@ main_via:
 						break;
 					case P_PORT:
 						/*end of port */
-						if(vb->port_str.s) vb->port_str.len = tmp - vb->port_str.s;
+						if(vb->port_str.s)
+							vb->port_str.len = tmp - vb->port_str.s;
 						state = L_PARAM;
 						break;
 					case L_PARAM: /* eat the space */
@@ -2131,13 +2146,15 @@ main_via:
 						break;
 					case P_HOST:
 						/*mark end of host*/
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						saved_state = L_PORT;
 						state = F_LF;
 						break;
 					case P_PORT:
 						/*end of port */
-						if(vb->port_str.s) vb->port_str.len = tmp - vb->port_str.s;
+						if(vb->port_str.s)
+							vb->port_str.len = tmp - vb->port_str.s;
 						saved_state = L_PARAM;
 						state = F_LF;
 						break;
@@ -2176,13 +2193,15 @@ main_via:
 						break;
 					case P_HOST:
 						/*mark end of host*/
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						saved_state = L_PORT;
 						state = F_CR;
 						break;
 					case P_PORT:
 						/*end of port */
-						if(vb->port_str.s) vb->port_str.len = tmp - vb->port_str.s;
+						if(vb->port_str.s)
+							vb->port_str.len = tmp - vb->port_str.s;
 						saved_state = L_PARAM;
 						state = F_CR;
 						break;
@@ -2212,7 +2231,8 @@ main_via:
 						break;
 					case P_HOST:
 						/*mark  end of host*/
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						state = F_PORT;
 						break;
 					case L_PORT:
@@ -2257,13 +2277,15 @@ main_via:
 						LM_ERR("bad ipv6 reference\n");
 						goto error;
 					case P_HOST:
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						state = F_PARAM;
 						param_start = tmp + 1;
 						break;
 					case P_PORT:
 						/*mark the end*/
-						if(vb->port_str.s) vb->port_str.len = tmp - vb->port_str.s;
+						if(vb->port_str.s)
+							vb->port_str.len = tmp - vb->port_str.s;
 					case L_PORT:
 					case L_PARAM:
 						state = F_PARAM;
@@ -2313,12 +2335,14 @@ main_via:
 						goto error;
 					case P_HOST:
 						/*mark the end*/
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						state = F_VIA;
 						break;
 					case P_PORT:
 						/*mark the end*/
-						if(vb->port_str.s) vb->port_str.len = tmp - vb->port_str.s;
+						if(vb->port_str.s)
+							vb->port_str.len = tmp - vb->port_str.s;
 						state = F_VIA;
 						break;
 					case L_PORT:
@@ -2363,13 +2387,15 @@ main_via:
 						goto error;
 					case P_HOST:
 						/*mark the end*/
-						if(vb->host.s) vb->host.len = tmp - vb->host.s;
+						if(vb->host.s)
+							vb->host.len = tmp - vb->host.s;
 						state = F_COMMENT;
 						c_nest++;
 						break;
 					case P_PORT:
 						/*mark the end*/
-						if(vb->port_str.s) vb->port_str.len = tmp - vb->port_str.s;
+						if(vb->port_str.s)
+							vb->port_str.len = tmp - vb->port_str.s;
 						state = F_COMMENT;
 						c_nest++;
 						break;
@@ -2469,7 +2495,9 @@ main_via:
 				switch(state) {
 					case P_IP6HOST:
 						/*mark the end*/
-						if(vb->host.s) vb->host.len = (tmp - vb->host.s) + 1; /* include "]" */
+						if(vb->host.s)
+							vb->host.len =
+									(tmp - vb->host.s) + 1; /* include "]" */
 						state = L_PORT;
 						break;
 					case F_CRLF:
@@ -2511,6 +2539,8 @@ main_via:
 						param = pkg_malloc(sizeof(struct via_param));
 						if(param == 0) {
 							PKG_MEM_ERROR;
+							if(parse_rc)
+								*parse_rc = E_OUT_OF_MEM;
 							goto error;
 						}
 						memset(param, 0, sizeof(struct via_param));
@@ -2527,11 +2557,11 @@ main_via:
 								break;
 							case F_VIA:
 								vb->params.len = param->start + param->size
-													- vb->params.s;
+												 - vb->params.s;
 								break;
 							case END_OF_HEADER:
 								vb->params.len = param->start + param->size
-													- vb->params.s;
+												 - vb->params.s;
 								break;
 							case PARAM_ERROR:
 								pkg_free(param);
@@ -2539,7 +2569,7 @@ main_via:
 							default:
 								pkg_free(param);
 								LM_ERR("parsing via after parse_via_param:"
-										" invalid char <%c> on state %d\n",
+									   " invalid char <%c> on state %d\n",
 										*tmp, state);
 								goto error;
 						}
@@ -2624,7 +2654,7 @@ main_via:
 						goto endofheader;
 					default:
 						LM_ERR("BUG: parsing via - invalid char <%c>"
-								" in state %d\n",
+							   " in state %d\n",
 								*tmp, state);
 						goto error;
 				}
@@ -2677,6 +2707,19 @@ endofpacket:
 			goto error;
 		}
 	}
+	if(vb->params.s != NULL && vb->params.len == 0 && vb->last_param != NULL) {
+		if(vb->last_param->name.len > 0) {
+			if(vb->last_param->value.len > 0) {
+				vb->params.len = vb->last_param->value.s
+								 + vb->last_param->value.len - vb->params.s;
+			} else {
+				vb->params.len = vb->last_param->name.s
+								 + vb->last_param->name.len - vb->params.s;
+			}
+		}
+	}
+	if(parse_rc)
+		*parse_rc = E_OK;
 	return tmp;
 nextvia:
 	DBG("parsing via: next via\n");
@@ -2691,9 +2734,23 @@ nextvia:
 			goto error;
 		}
 	}
+	if(vb->params.s != NULL && vb->params.len == 0 && vb->last_param != NULL) {
+		if(vb->last_param->name.len > 0) {
+			if(vb->last_param->value.len > 0) {
+				vb->params.len = vb->last_param->value.s
+								 + vb->last_param->value.len - vb->params.s;
+			} else {
+				vb->params.len = vb->last_param->name.s
+								 + vb->last_param->name.len - vb->params.s;
+			}
+		}
+	}
+
 	vb->next = pkg_malloc(sizeof(struct via_body));
 	if(vb->next == 0) {
 		PKG_MEM_ERROR;
+		if(parse_rc)
+			*parse_rc = E_OUT_OF_MEM;
 		goto error;
 	}
 	vb = vb->next;
@@ -2703,7 +2760,8 @@ nextvia:
 
 error:
 	if(end > buffer) {
-		LM_ERR("parsing via on: <%.*s>\n", (int)(end - buffer), ZSW(ksr_buf_oneline(buffer, (int)(end - buffer))));
+		LM_ERR("parsing via on: <%.*s>\n", (int)(end - buffer),
+				ZSW(ksr_buf_oneline(buffer, (int)(end - buffer))));
 	}
 	if((tmp > buffer) && (tmp < end)) {
 		LM_ERR("parse error, parsed so far:<%.*s>\n", (int)(tmp - buffer),
@@ -2717,6 +2775,11 @@ error:
 	return tmp;
 }
 
+char *parse_via(
+		char *buffer, const char *const end, struct via_body *const vbody)
+{
+	return parse_via_ex(buffer, end, vbody, NULL);
+}
 
 static inline void free_via_param_list(struct via_param *vp)
 {
@@ -2750,8 +2813,9 @@ int parse_via_header(struct sip_msg *msg, int n, struct via_body **q)
 	switch(n) {
 		case 1:
 		case 2:
-			if(!msg->h_via1 && (parse_headers(msg, HDR_VIA_F, 0) == -1
-									|| !msg->h_via1)) {
+			if(!msg->h_via1
+					&& (parse_headers(msg, HDR_VIA_F, 0) == -1
+							|| !msg->h_via1)) {
 				DBG("bad msg or missing VIA1 header \n");
 				return -1;
 			}
@@ -2762,8 +2826,9 @@ int parse_via_header(struct sip_msg *msg, int n, struct via_body **q)
 			if(pp)
 				break;
 
-			if(!msg->h_via2 && (parse_headers(msg, HDR_VIA2_F, 0) == -1
-									|| !msg->h_via2)) {
+			if(!msg->h_via2
+					&& (parse_headers(msg, HDR_VIA2_F, 0) == -1
+							|| !msg->h_via2)) {
 				DBG("bad msg or missing VIA2 header \n");
 				return -1;
 			}
@@ -2798,4 +2863,47 @@ int parse_via_header(struct sip_msg *msg, int n, struct via_body **q)
 		return 0;
 	} else
 		return -1;
+}
+
+
+/*
+ * Parse/link Via overload-control parameters
+ */
+int parse_via_oc(struct sip_msg *msg, struct via_body *vbp, via_oc_t *ocp)
+{
+	via_param_t *vp;
+
+	if(vbp == NULL || ocp == NULL) {
+		return -1;
+	}
+	memset(ocp, 0, sizeof(via_oc_t));
+
+	for(vp = vbp->param_lst; vp != NULL; vp = vp->next) {
+		if(vp->name.len == 2 && strncasecmp(vp->name.s, "oc", 2) == 0) {
+			if(vp->value.len > 0) {
+				ocp->oc = 2;
+				ocp->ocval.len = vp->value.len;
+				ocp->ocval.s = vp->value.s;
+			} else {
+				ocp->oc = 1;
+			}
+		} else if(vp->name.len == 7
+				  && strncasecmp(vp->name.s, "oc-algo", 7) == 0) {
+			if(vp->value.len > 0) {
+				ocp->algo.len = vp->value.len;
+				ocp->algo.s = vp->value.s;
+			}
+		} else if(vp->name.len == 11
+				  && strncasecmp(vp->name.s, "oc-validity", 11) == 0) {
+			if(vp->value.len > 0) {
+				str2ulong(&vp->value, &ocp->validity);
+			}
+		} else if(vp->name.len == 6
+				  && strncasecmp(vp->name.s, "oc-seq", 6) == 0) {
+			if(vp->value.len > 0) {
+				str2int(&vp->value, &ocp->seq);
+			}
+		}
+	}
+	return 0;
 }

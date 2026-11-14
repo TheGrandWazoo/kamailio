@@ -3,6 +3,8 @@
  *
  * This file is part of Kamailio, a free SIP server.
  *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Kamailio is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -33,7 +35,8 @@
 #include "../../core/rpc.h"
 #include "../../core/timer.h"
 
-typedef enum {
+typedef enum
+{
 	WS_S_CONNECTING = 0, /* Never used - included for completeness */
 	WS_S_OPEN,
 	WS_S_CLOSING,
@@ -41,10 +44,27 @@ typedef enum {
 	WS_S_CLOSED /* Never used - included for completeness */
 } ws_conn_state_t;
 
+typedef enum
+{
+	WS_ROLE_SERVER = 0,
+	WS_ROLE_CLIENT
+} ws_conn_role_t;
+
+#define WS_HANDSHAKE_KEY_SIZE 64
+
+typedef struct ws_send_item
+{
+	struct ws_send_item *next;
+	unsigned int len;
+	char data[1];
+} ws_send_item_t;
+
 typedef struct ws_connection
 {
 	ws_conn_state_t state;
+	ws_conn_role_t role;
 	int awaiting_pong;
+	int stats_enabled;
 	ticks_t rmticks;
 
 	int last_used;
@@ -62,7 +82,16 @@ typedef struct ws_connection
 
 	atomic_t refcnt;
 	int run_event;
+	int handshake_key_len;
+	char handshake_key[WS_HANDSHAKE_KEY_SIZE];
+	int target_port;
+	int target_proto;
+	str target_host;
+	str target_path;
+	ws_send_item_t *sendq_head;
+	ws_send_item_t *sendq_tail;
 
+	int frag_progress;
 	str frag_buf;
 } ws_connection_t;
 
@@ -77,7 +106,8 @@ typedef struct
 	ws_connection_t *tail;
 } ws_connection_list_t;
 
-typedef enum {
+typedef enum
+{
 	WSCONN_EVENTROUTE_NO = 0,
 	WSCONN_EVENTROUTE_YES
 } ws_conn_eventroute_t;
@@ -96,10 +126,23 @@ extern stat_var *ws_msrp_max_concurrent_connections;
 int wsconn_init(void);
 void wsconn_destroy(void);
 int wsconn_add(struct receive_info *rcv, unsigned int sub_protocol);
+int wsconn_add_outgoing(struct receive_info *rcv, unsigned int sub_protocol,
+		str *handshake_key, str *host, int port, str *path, int proto);
+int wsconn_pending_add(struct ip_addr *ip, unsigned short port, int proto,
+		unsigned int sub_protocol, str *handshake_key, str *host,
+		int target_port, str *path, int target_proto);
+void wsconn_pending_rm(struct ip_addr *ip, unsigned short port, int proto);
+ws_connection_t *wsconn_pending_bind(struct receive_info *rcv);
+int wsconn_mark_open(ws_connection_t *wsc);
 int wsconn_rm(ws_connection_t *wsc, ws_conn_eventroute_t run_event_route);
 int wsconn_update(ws_connection_t *wsc);
 void wsconn_close_now(ws_connection_t *wsc);
 ws_connection_t *wsconn_get(int id);
+ws_connection_t *wsconn_get_outgoing(
+		str *host, int port, str *path, int proto, unsigned int sub_protocol);
+int wsconn_sendq_push(ws_connection_t *wsc, const char *buf, unsigned int len);
+ws_send_item_t *wsconn_sendq_detach(ws_connection_t *wsc);
+void wsconn_sendq_free_list(ws_send_item_t *head);
 int wsconn_put(ws_connection_t *wsc);
 ws_connection_t **wsconn_get_list(void);
 int wsconn_put_list(ws_connection_t **list);

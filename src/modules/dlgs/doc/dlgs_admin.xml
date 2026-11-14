@@ -21,7 +21,9 @@
 	</para>
 	<para>
 		The dialogs can be tagged and the number of dialogs with the same tag
-		can be retrieved in configuration file.
+		can be retrieved in configuration file. Serial forking is supported,
+		but no spiraled calls or parall forking. It will track the first call
+		attempt and ignore eventual later attempts with the same Call-ID.
 	</para>
 	<para>
 		The module aims to be a lightweight alternative to dialog module, to
@@ -68,7 +70,7 @@
 		<title><varname>active_lifetime</varname> (int)</title>
 		<para>
 			The lifetime in seconds of an active dialog in memory. A dialog is
-			considered active after the ACK of 200OK for INVITE.
+			considered active after the ACK of 200 OK for INVITE.
 		</para>
 		<para>
 		<emphasis>
@@ -131,7 +133,7 @@ modparam("dlgs", "finish_lifetime", 20)
 	<section id="dlgs.p.timer_interval">
 		<title><varname>timer_interval</varname> (int)</title>
 		<para>
-			The value in secods to run the timer callback function for cleaning
+			The value in seconds to run the timer callback function for cleaning
 			up dialogs past the lifetime limit.
 		</para>
 		<para>
@@ -148,6 +150,28 @@ modparam("dlgs", "timer_interval", 60)
 </programlisting>
 		</example>
 	</section>
+	<section id="dlgs.p.hash_size">
+		<title><varname>hash_size</varname> (integer)</title>
+		<para>
+		The size of the hash table internally used to keep the dialogs. A
+		larger table is much faster but consumes more memory. The hash size
+		must be a power of two.
+		</para>
+		<para>
+		<emphasis>
+			Default value is <quote>9</quote>.
+		</emphasis>
+		</para>
+		<example>
+		<title>Set <varname>hash_size</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("dlgs", "hash_size", 5)
+...
+</programlisting>
+		</example>
+	</section>
+
 	</section>
 
 	<section>
@@ -198,6 +222,33 @@ request_route {
     ...
     if(is_method("ACK|BYE|CANCEL")) {
         dlgs_update();
+    }
+    ...
+}
+...
+</programlisting>
+		</example>
+	</section>
+	<section id="dlgs.f.dlgs_find">
+		<title>
+		<function moreinfo="none">dlgs_find()</function>
+		</title>
+		<para>
+			Return true (1) if dlgs item is found for the current message,
+			otherwise false (-1).
+		</para>
+		<para>
+			This function can be used from REQUEST_ROUTE, BRANCH_ROUTE, FAILURE_ROUTE,
+			ONSEND_ROUTE.
+		</para>
+		<example>
+		<title><function>dlgs_find</function> usage</title>
+		<programlisting format="linespecific">
+...
+request_route {
+    ...
+    if(dlgs_find()) {
+        ...
     }
     ...
 }
@@ -392,10 +443,10 @@ request_route {
 			the same meaning like those for dlgs_count(...).
 		</para>
 		<example>
-		<title><function>dlgs.get</function> usage</title>
+		<title><function>dlgs.getall</function> usage</title>
 		<programlisting format="linespecific">
 ...
-&kamctl; rpc dlgs.get src eq sip:alice@sipserver.com
+&kamctl; rpc dlgs.getall src eq sip:alice@sipserver.com
 ...
 </programlisting>
 		</example>
@@ -416,5 +467,26 @@ request_route {
 </programlisting>
 		</example>
 	</section>
+			<section id="dlgs.rpc.count">
+			<title>
+				<function moreinfo="none">dlgs.count</function>
+			</title>
+			<para>
+		Prototype: dlgs.count field op data
+			</para>
+			<para>
+			Return the number of ongoing dialogs. The parameters have
+			the same meaning like those for <xref linkend="dlgs.f.dlgs_count"/> function.
+			</para>
+			<example>
+				<title>
+					<function>dlgs.count</function> usage</title>
+				<programlisting format="linespecific">
+...
+&kamctl; rpc dlgs.count src sw "sip:alice"
+...
+				</programlisting>
+			</example>
+		</section>
 	</section>
 </chapter>

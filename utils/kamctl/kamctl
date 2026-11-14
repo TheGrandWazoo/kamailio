@@ -2,10 +2,28 @@
 #
 # control tool for maintaining Kamailio
 #
+# This file is part of Kamailio, a free SIP server.
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Kamailio is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version
+#
+# Kamailio is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+#
 #===================================================================
 
 ### version for this script
-VERSION='5.4.0'
+VERSION='6.1.0'
 
 PATH=$PATH:/usr/local/sbin/
 
@@ -18,6 +36,7 @@ else
 fi
 
 ### include config files
+RC_FILE_SOURCED="false"
 
 # check for rc file at same location with kamctl
 which greadlink >/dev/null 2>&1
@@ -39,13 +58,15 @@ if [ -n "$KAMCTLFULLPATH" ] ; then
 fi
 
 # check for rc file at standard locations
-if [ -f /etc/kamailio/kamctlrc ]; then
+if [ $RC_FILE_SOURCED = "false" ] && [ -f /etc/kamailio/kamctlrc -a -r /etc/kamailio/kamctlrc ]; then
 	. /etc/kamailio/kamctlrc
+	RC_FILE_SOURCED="true"
 fi
-if [ -f /usr/local/etc/kamailio/kamctlrc ]; then
+if [ $RC_FILE_SOURCED = "false" ] &&  [ -f /usr/local/etc/kamailio/kamctlrc -a -r /usr/local/etc/kamailio/kamctlrc ]; then
 	. /usr/local/etc/kamailio/kamctlrc
+	RC_FILE_SOURCED="true"
 fi
-if [ -f ~/.kamctlrc ]; then
+if [ -f ~/.kamctlrc -a -r ~/.kamctlrc ]; then
 	. ~/.kamctlrc
 fi
 
@@ -73,13 +94,17 @@ if [ -z "$MYLIBDIR" ] ; then
 	fi
 fi
 
+if [ -z "$STARTUP_CONFIG_FILE" ]; then
+	STARTUP_CONFIG_FILE="kamailio.cfg"
+fi
+
 ##### ------------------------------------------------ #####
 ### load base functions
 #
 if [ -f "$MYLIBDIR/kamctl.base" ]; then
 	. "$MYLIBDIR/kamctl.base"
 else
-	echo -e "Cannot load core functions '$MYLIBDIR/kamctl.base' - exiting ...\n"
+	printf "Cannot load core functions '%s' - exiting ...\n\n" "$MYLIBDIR/kamctl.base"
 	exit -1
 fi
 
@@ -137,12 +162,6 @@ case $DBENGINE in
 	DBTEXT|dbtext|textdb)
 		if [ -f "$MYLIBDIR/kamctl.dbtext" ]; then
 			. "$MYLIBDIR/kamctl.dbtext"
-			DBENGINELOADED=1
-		fi
-		;;
-	DB_BERKELEY|db_berkeley|BERKELEY|berkeley)
-		if [ -f "$MYLIBDIR/kamctl.db_berkeley" ]; then
-			. "$MYLIBDIR/kamctl.db_berkeley"
 			DBENGINELOADED=1
 		fi
 		;;
@@ -1752,6 +1771,40 @@ dispatcher() {
 			fi
 
 			;;
+	  rmip)
+			require_dbengine
+			shift
+			if [ $# -ne 2 ] ; then
+				merr "missing gateway ip address and/or setid to be removed"
+				exit 1
+			fi
+
+			QUERY="delete from $DISPATCHER_TABLE where $DISPATCHER_SETID_COLUMN='$2' and $DISPATCHER_DESTINATION_COLUMN like 'sip:$1:%';"
+			$DBCMD "$QUERY"
+
+			if [ $? -ne 0 ] ; then
+				merr "dispatcher - SQL Error"
+				exit 1
+			fi
+
+	    ;;
+	  rmset)
+			require_dbengine
+			shift
+			if [ $# -ne 2 ] ; then
+				merr "missing gateway setid to be removed"
+				exit 1
+			fi
+
+			QUERY="delete from $DISPATCHER_TABLE where $DISPATCHER_SETID_COLUMN='$1'' and $DISPATCHER_DESTINATION_COLUMN like 'sip:$1:%'';"
+			$DBCMD "$QUERY"
+
+			if [ $? -ne 0 ] ; then
+				merr "dispatcher - SQL Error"
+				exit 1
+			fi
+
+	    ;;
 		reload)
 			require_ctlengine
 			ctl_cmd_run dispatcher.reload
@@ -2007,9 +2060,9 @@ kamailio_start() {
 		exit 1
 	fi
 	if [ $SYSLOG = 1 ] ; then
-		$KAMBIN -P $PID_FILE  -f $ETCDIR/kamailio.cfg $STARTOPTIONS 1>/dev/null 2>/dev/null
+		$KAMBIN -P $PID_FILE  -f $ETCDIR/$STARTUP_CONFIG_FILE $STARTOPTIONS 1>/dev/null 2>/dev/null
 	else
-		$KAMBIN -P $PID_FILE -E  -f $ETCDIR/kamailio.cfg $STARTOPTIONS
+		$KAMBIN -P $PID_FILE -E  -f $ETCDIR/$STARTUP_CONFIG_FILE $STARTOPTIONS
 	fi
 	sleep 3
 	if [ ! -s $PID_FILE ] ; then
@@ -2192,7 +2245,7 @@ $SD_DESC_COLUMN FROM $SD_TABLE;"
 				#| $AWK 'BEGIN {line=0;}
 				#	/^\+/ { next }
 				#	{	line++;
-	#if(line==1) print "SIP-ID     \tSpeedDial  \tNew-URI    \tDescritpion\n";
+	#if(line==1) print "SIP-ID     \tSpeedDial  \tNew-URI    \tDescription\n";
 				#		else {
 				#			ORS_BAK=ORS;
 				#			ORS="";
@@ -2234,7 +2287,7 @@ $SD_TABLE $CLAUSE ; "
 			$DBROCMD "$QUERY"
 			# | $AWK 'BEGIN {line=0;} /^\+/ { next }
 			# {
-			#	  if(line==0) print "##  SIP-ID    \tNew-URI   \tDescritpion\n";
+			#	  if(line==0) print "##  SIP-ID    \tNew-URI   \tDescription\n";
 			#	  else {
 			#		  ORS_BAK=ORS;usage_kamailio_monitor() {
 			#		  ORS="";
@@ -3217,4 +3270,3 @@ case $1 in
 		exit 1
 		;;
 esac
-
